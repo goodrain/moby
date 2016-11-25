@@ -107,9 +107,9 @@ depending on a particular stack or provider.
 
 %prep
 %if 0%{?centos} <= 6 || 0%{?oraclelinux} <=6
-%setup -n %{name}
+%setup -n docker-engine
 %else
-%autosetup -n %{name}
+%autosetup -n docker-engine
 %endif
 
 %build
