@@ -11,6 +11,9 @@ URL: https://dockerproject.org
 Vendor: Docker
 Packager: Docker <support@docker.com>
 
+# need goodrain libzmq
+Requires: gr-libzmq3
+
 # is_systemd conditional
 %if 0%{?fedora} >= 21 || 0%{?centos} >= 7 || 0%{?rhel} >= 7 || 0%{?suse_version} >= 1210
 %global is_systemd 1
