@@ -1,11 +1,11 @@
-Name: docker-engine
+Name: gr-docker-engine
 Version: %{_version}
 Release: %{_release}%{?dist}
 Summary: The open-source application container engine
 Group: Tools/Docker
 
 License: ASL 2.0
-Source: %{name}.tar.gz
+Source: docker-engine.tar.gz
 
 URL: https://dockerproject.org
 Vendor: Docker
