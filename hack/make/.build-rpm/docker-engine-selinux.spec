@@ -36,6 +36,7 @@ BuildRequires: selinux-policy selinux-policy-devel
 
 # conflicting packages
 Conflicts: docker-selinux
+Conflicts: docker-engine-selinux
 
 # Usage: _format var format
 #   Expand 'modulenames' into various formats as needed
