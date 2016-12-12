@@ -71,9 +71,7 @@ set -e
 
 		# add libzmq for docker
 		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
-            ADD libzmq3 /usr/local/libzmq3
-            RUN echo /usr/local/libzmq3/lib > /etc/ld.so.conf.d/zmq.conf && ldconfig
-            ENV PKG_CONFIG_PATH /usr/local/libzmq3/lib/pkgconfig
+            RUN apt-get install libzmq3
 		EOF
 
 		# add runc and containerd compile and install
