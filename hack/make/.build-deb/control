@@ -1,4 +1,4 @@
-Source: docker-engine
+Source: gr-docker-engine
 Section: admin
 Priority: optional
 Maintainer: Docker <support@docker.com>
@@ -7,7 +7,7 @@ Homepage: https://dockerproject.org
 Vcs-Browser: https://github.com/docker/docker
 Vcs-Git: git://github.com/docker/docker.git
 
-Package: docker-engine
+Package: gr-docker-engine
 Architecture: linux-any
 Depends: iptables, ${misc:Depends}, ${perl:Depends}, ${shlibs:Depends}
 Recommends: aufs-tools,
