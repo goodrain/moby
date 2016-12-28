@@ -61,19 +61,28 @@ func (sw *StdWatcher) handle() {
 		case c := <-sw.Handle:
 			sw.CWLock.Lock()
 			if _, ok := sw.CopyWork[c.ID]; !ok {
-				var watchContainer string
+				var serviceID, servicePod, tenantID string
 				for _, env := range c.Config.Env {
-					if strings.HasPrefix(env, "WatchContainer") {
-						watchContainer = strings.Split(env, "=")[1]
+					if strings.HasPrefix(env, "SERVICE_ID") {
+						serviceID = strings.Split(env, "=")[1]
+					}
+					if strings.HasPrefix(env, "SERVICE_POD") {
+						servicePod = strings.Split(env, "=")[1]
+					}
+					if strings.HasPrefix(env, "TENANT_ID") {
+						tenantID = strings.Split(env, "=")[1]
 					}
 				}
-				if watchContainer == "" {
+				if serviceID == "" || servicePod == "" || tenantID == "" {
 					logrus.Warningf("The WatchContainer (%s) is not define endpoint", c.Name)
 				} else {
-					logrus.Debug("Watch a contaier that want to read stdout from contaienr ", watchContainer)
+					logrus.Debugf("Watch a contaier that want to read stdout from contaienr name: k8s_%s.*_%s_%s_*", serviceID, servicePod, tenantID)
 					watchcopy := NewWatcherCopy(c, sw.RunDaemon)
 					if watchcopy != nil {
-						go watchcopy.find(watchContainer)
+						var findfunc = func(c *container.Container) bool {
+							return strings.HasPrefix(c.Name, "/k8s_"+serviceID) && strings.Contains(c.Name, servicePod+"_"+tenantID)
+						}
+						go watchcopy.find(findfunc)
 						sw.CopyWork[c.ID] = watchcopy
 					}
 				}
@@ -145,8 +154,8 @@ func (sw *StdWatcher) Watch() {
 		case <-sw.Close:
 			close(sw.Handle)
 			sw.clear()
-			close(sw.stop)
 			logrus.Debug("stdwatcher watch close")
+			close(sw.stop)
 			return
 		case <-time.Tick(time.Second * 5):
 		}
@@ -228,11 +237,11 @@ func (c *WatcherCopy) copySrc(name string, src io.Reader) {
 	}
 }
 
-func (c *WatcherCopy) find(containerName string) {
+func (c *WatcherCopy) find(f func(*container.Container) bool) {
 	if !c.isFound && c.srcs == nil {
 		for {
 			for _, container := range c.daemon.List() {
-				if container.IsRunning() && container.Name == containerName {
+				if container.IsRunning() && f(container) {
 					c.srcs = map[string]io.Reader{"stdout": container.StdoutPipe(), "stderr": container.StderrPipe()}
 					c.srcContainer = container
 					logrus.Debug("WatcherCopy Find the source container ", container.ID)
