@@ -52,42 +52,46 @@ func (sw *StdWatcher) clear() {
 	sw.CopyWork = nil
 }
 
-func (sw *StdWatcher) handle() {
+func (sw *StdWatcher) handle(stop chan struct{}) {
 	for {
 		select {
 		case <-sw.Close:
 			logrus.Debug("StdWatcher handle closed")
+			sw.clear()
+			close(stop)
 			return
-		case c := <-sw.Handle:
-			sw.CWLock.Lock()
-			if _, ok := sw.CopyWork[c.ID]; !ok {
-				var serviceID, servicePod, tenantID string
-				for _, env := range c.Config.Env {
-					if strings.HasPrefix(env, "SERVICE_ID") {
-						serviceID = strings.Split(env, "=")[1]
-					}
-					if strings.HasPrefix(env, "SERVICE_POD") {
-						servicePod = strings.Split(env, "=")[1]
-					}
-					if strings.HasPrefix(env, "TENANT_ID") {
-						tenantID = strings.Split(env, "=")[1]
-					}
-				}
-				if serviceID == "" || servicePod == "" || tenantID == "" {
-					logrus.Warningf("The WatchContainer (%s) is not define endpoint", c.Name)
-				} else {
-					logrus.Debugf("Watch a contaier that want to read stdout from contaienr name: k8s_%s.*_%s_%s_*", serviceID, servicePod, tenantID)
-					watchcopy := NewWatcherCopy(c, sw.RunDaemon)
-					if watchcopy != nil {
-						var findfunc = func(c *container.Container) bool {
-							return strings.HasPrefix(c.Name, "/k8s_"+serviceID) && strings.Contains(c.Name, servicePod+"_"+tenantID)
+		case c, open := <-sw.Handle:
+			if open {
+				sw.CWLock.Lock()
+				if _, ok := sw.CopyWork[c.ID]; !ok {
+					var serviceID, servicePod, tenantID string
+					for _, env := range c.Config.Env {
+						if strings.HasPrefix(env, "SERVICE_ID") {
+							serviceID = strings.Split(env, "=")[1]
 						}
-						go watchcopy.find(findfunc)
-						sw.CopyWork[c.ID] = watchcopy
+						if strings.HasPrefix(env, "SERVICE_POD") {
+							servicePod = strings.Split(env, "=")[1]
+						}
+						if strings.HasPrefix(env, "TENANT_ID") {
+							tenantID = strings.Split(env, "=")[1]
+						}
+					}
+					if serviceID == "" || servicePod == "" || tenantID == "" {
+						logrus.Warningf("The WatchContainer (%s) is not define endpoint", c.Name)
+					} else {
+						logrus.Debugf("Watch a contaier that want to read stdout from contaienr name: k8s_%s.*_%s_%s_*", serviceID, servicePod, tenantID)
+						watchcopy := NewWatcherCopy(c, sw.RunDaemon)
+						if watchcopy != nil {
+							var findfunc = func(c *container.Container) bool {
+								return strings.HasPrefix(c.Name, "/k8s_"+serviceID) && strings.Contains(c.Name, servicePod+"_"+tenantID)
+							}
+							go watchcopy.find(findfunc)
+							sw.CopyWork[c.ID] = watchcopy
+						}
 					}
 				}
+				sw.CWLock.Unlock()
 			}
-			sw.CWLock.Unlock()
 		}
 	}
 }
@@ -96,11 +100,12 @@ func (sw *StdWatcher) handle() {
 // 健康检测，清除超时未找到数据源的watchercopy
 // 清除关闭的容器,查看daemon怎么维护已关闭和已删除容器
 // 转发状态监测，若出错尝试重新链接
-func (sw *StdWatcher) checkheath() {
+func (sw *StdWatcher) checkheath(stop chan struct{}) {
 	for {
 		select {
 		case <-sw.Close:
 			logrus.Debug("stdwatcher checkheath close")
+			close(stop)
 			return
 		case <-time.Tick(time.Minute * 1):
 		}
@@ -137,9 +142,10 @@ func (sw *StdWatcher) Watch() {
 			logrus.Error("StdWatcher happen pinic")
 		}
 	}()
-
-	go sw.handle()
-	go sw.checkheath()
+	handleClose := make(chan struct{})
+	checkheathClose := make(chan struct{})
+	go sw.handle(handleClose)
+	go sw.checkheath(checkheathClose)
 
 	logrus.Info("Run Contaiers StdWatch Start")
 	logrus.Debug("WatchStdIn container that image is ", sw.WatchImage)
@@ -152,7 +158,10 @@ func (sw *StdWatcher) Watch() {
 		select {
 		case <-sw.Close:
 			close(sw.Handle)
-			sw.clear()
+			//wait handle stop
+			<-handleClose
+			//wait checkheath stop
+			<-checkheathClose
 			logrus.Debug("stdwatcher watch close")
 			close(sw.stop)
 			return
@@ -216,6 +225,7 @@ func (c *WatcherCopy) copySrc(name string, src io.Reader) {
 		case <-c.closed:
 			c.dst.Close()
 			c.status = "closed"
+			logrus.Debug("WatcherCopy copySrc closed")
 			return
 		default:
 			line, err := reader.ReadBytes('\n')
