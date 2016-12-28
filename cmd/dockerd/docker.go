@@ -65,7 +65,7 @@ func main() {
 		logrus.Fatal(err)
 	}
 	//将watchImage传入daemoncli
-	daemonCli.WatchImage = &watchImage
+	daemonCli.WatchImage = *watchImage
 
 	if !stop {
 		err = daemonCli.start()
