@@ -58,6 +58,8 @@ type DaemonCli struct {
 
 	api *apiserver.Server
 	d   *daemon.Daemon
+	//the image name of Stdwatcher watch container
+	WatchImage string
 }
 
 func presentInHelp(usage string) string { return usage }
@@ -285,7 +287,7 @@ func (cli *DaemonCli) start() (err error) {
 
 	//开启stdwatch 实时查看容器标准输出
 	closeWatcher := make(chan struct{})
-	w := stdutil.CreateWatcher(d, closeWatcher)
+	w := stdutil.CreateWatcher(d, closeWatcher, cli.WatchImage)
 	go w.Watch()
 	//代码嵌入结束
 

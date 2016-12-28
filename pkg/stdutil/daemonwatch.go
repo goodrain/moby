@@ -9,8 +9,6 @@ import (
 
 	"github.com/docker/docker/container"
 
-	"os"
-
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon"
 )
@@ -28,17 +26,19 @@ type StdWatcher struct {
 	CopyWork    map[string]*WatcherCopy
 	CWLock      sync.Mutex
 	Close, stop chan struct{}
+	WatchImage  string
 }
 
 //CreateWatcher 创建容器标准输入输出观察者
-func CreateWatcher(d *daemon.Daemon, close chan struct{}) Watcher {
+func CreateWatcher(d *daemon.Daemon, close chan struct{}, watchimage string) Watcher {
 	logrus.Info("RunContaiers StdWatch has completed create")
 	w := &StdWatcher{
-		RunDaemon: d,
-		Handle:    make(chan *container.Container, 5),
-		CopyWork:  make(map[string]*WatcherCopy, 0),
-		Close:     close,
-		stop:      make(chan struct{}),
+		RunDaemon:  d,
+		Handle:     make(chan *container.Container, 5),
+		CopyWork:   make(map[string]*WatcherCopy, 0),
+		Close:      close,
+		stop:       make(chan struct{}),
+		WatchImage: watchimage,
 	}
 	return w
 }
@@ -142,11 +142,10 @@ func (sw *StdWatcher) Watch() {
 	go sw.checkheath()
 
 	logrus.Info("Run Contaiers StdWatch Start")
-	var WatchImage = os.Getenv("WatchImage")
-	logrus.Debug("WatchStdIn container that image is ", WatchImage)
+	logrus.Debug("WatchStdIn container that image is ", sw.WatchImage)
 	for {
 		for _, c := range sw.RunDaemon.List() {
-			if c.IsRunning() && (c.ImageID.String() == WatchImage || c.Config.Image == WatchImage) {
+			if c.IsRunning() && (c.ImageID.String() == sw.WatchImage || c.Config.Image == sw.WatchImage) {
 				sw.Handle <- c
 			}
 		}
