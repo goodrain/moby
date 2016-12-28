@@ -34,7 +34,7 @@ func init() {
 func New(ctx logger.Context) (logger.Logger, error) {
 	containerId := ctx.ContainerID[:12]
 	zmqaddress := ctx.Config[zmqAddress]
-	fmt.Println("zmqaddress: %s", zmqaddress)
+	fmt.Println("zmqaddress: ", zmqaddress)
 	
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
