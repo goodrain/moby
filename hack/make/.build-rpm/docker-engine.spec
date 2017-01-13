@@ -1,15 +1,18 @@
-Name: docker-engine
+Name: gr-docker-engine
 Version: %{_version}
 Release: %{_release}%{?dist}
 Summary: The open-source application container engine
 Group: Tools/Docker
 
 License: ASL 2.0
-Source: %{name}.tar.gz
+Source: docker-engine.tar.gz
 
 URL: https://dockerproject.org
 Vendor: Docker
 Packager: Docker <support@docker.com>
+
+# need goodrain libzmq
+Requires: gr-libzmq3
 
 # is_systemd conditional
 %if 0%{?fedora} >= 21 || 0%{?centos} >= 7 || 0%{?rhel} >= 7 || 0%{?suse_version} >= 1210
@@ -93,6 +96,7 @@ Requires(pre): %{name}-selinux >= %{version}-%{release}
 Conflicts: docker
 Conflicts: docker-io
 Conflicts: docker-engine-cs
+Conflicts: docker-engine
 
 %description
 Docker is an open source project to build, ship and run any application as a
@@ -107,9 +111,9 @@ depending on a particular stack or provider.
 
 %prep
 %if 0%{?centos} <= 6 || 0%{?oraclelinux} <=6
-%setup -n %{name}
+%setup -n docker-engine
 %else
-%autosetup -n %{name}
+%autosetup -n docker-engine
 %endif
 
 %build

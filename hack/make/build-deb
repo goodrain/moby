@@ -69,6 +69,11 @@ set -e
 		awk '$1 == "ENV" && $2 == "RUNC_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
 		awk '$1 == "ENV" && $2 == "CONTAINERD_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
 
+		# add libzmq for docker
+		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
+            RUN apt-get update && apt-get install -y libzmq3-dev
+		EOF
+
 		# add runc and containerd compile and install
 		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
 			# Install runc

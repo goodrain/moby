@@ -268,5 +268,7 @@ RUN set -x \
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
 
+RUN apt-get install -y libzmq3-dev
+
 # Upload docker source
 COPY . /go/src/github.com/docker/docker

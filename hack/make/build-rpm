@@ -38,10 +38,10 @@ set -e
 		gitUnix="$(git log -1 --pretty='%at')"
 		gitDate="$(date --date "@$gitUnix" +'%Y%m%d.%H%M%S')"
 		gitCommit="$(git log -1 --pretty='%h')"
-		gitVersion="${gitDate}.git${gitCommit}"
+		gitVersion="g${gitCommit}"
 		# gitVersion is now something like '20150128.112847.17e840a'
 		rpmVersion="${rpmVersion%-dev}"
-		rpmRelease="0.0.$gitVersion"
+		rpmRelease="$gitVersion"
 	fi
 
 	# Replace any other dashes with periods
@@ -95,6 +95,13 @@ set -e
 		# get the RUNC and CONTAINERD commit from the root Dockerfile, this keeps the commits in sync
 		awk '$1 == "ENV" && $2 == "RUNC_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
 		awk '$1 == "ENV" && $2 == "CONTAINERD_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
+
+		# add libzmq for docker
+		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
+            ADD libzmq3 /usr/local/libzmq3
+            RUN echo /usr/local/libzmq3/lib > /etc/ld.so.conf.d/zmq.conf && ldconfig
+            ENV PKG_CONFIG_PATH /usr/local/libzmq3/lib/pkgconfig
+		EOF
 
 		# add runc and containerd compile and install
 		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
