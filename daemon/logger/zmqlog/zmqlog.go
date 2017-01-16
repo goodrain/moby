@@ -2,7 +2,7 @@ package zmqlog
 
 import (
 	"fmt"
-	//"sync"
+	"sync"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
