@@ -33,30 +33,20 @@ func init() {
 }
 
 func New(ctx logger.Context) (logger.Logger, error) {
-	containerId := ctx.ContainerID[:12]
 	zmqaddress := ctx.Config[zmqAddress]
-	fmt.Println("zmqaddress: ", zmqaddress)
+	// fmt.Println("zmqaddress: ", zmqaddress)
 	
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		return nil, err
 	}
 	var (
-		env = make(map[string]string)
 		tenantId string
 		serviceId string
 	)
-	for _, pair := range ctx.ContainerEnv {
-		p := strings.SplitN(pair, "=", 2)
-		//logrus.Errorf("ContainerEnv pair: %s", pair)
-		if len(p) == 2 {
-			key :=p[0]
-			value :=p[1]
-			env[key] = value
-		}
-	}
-	tenantId = env["TENANT_ID"]
-	serviceId = env["SERVICE_ID"]
+
+	tenantId = ctx.ExtraAttributes["TENANT_ID"]
+	serviceId = ctx.ExtraAttributes["SERVICE_ID"]
 	
 	if tenantId == "" {
 		tenantId = "default"
@@ -70,7 +60,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 
 	return &ZmqLogger{
 		writer: puber,
-		containerId: containerId,
+		containerId: ctx.ID,
 		tenantId : tenantId,
 		serviceId : serviceId,
 	}, nil
@@ -90,6 +80,8 @@ func (s *ZmqLogger) Log(msg *logger.Message) error {
 }
 
 func (s *ZmqLogger) Close() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	if s.writer != nil {
 		return s.writer.Close()
 	}
