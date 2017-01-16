@@ -20,6 +20,7 @@ type ZmqLogger struct {
 	containerId string
 	tenantId string
 	serviceId string
+	lock      sync.Mutex
 }
 
 func init() {
@@ -34,7 +35,7 @@ func init() {
 func New(ctx logger.Context) (logger.Logger, error) {
 	containerId := ctx.ContainerID[:12]
 	zmqaddress := ctx.Config[zmqAddress]
-	fmt.Println("zmqaddress: %s", zmqaddress)
+	fmt.Println("zmqaddress: ", zmqaddress)
 	
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
@@ -76,6 +77,8 @@ func New(ctx logger.Context) (logger.Logger, error) {
 }
 
 func (s *ZmqLogger) Log(msg *logger.Message) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	s.writer.Send(s.tenantId, zmq.SNDMORE)
 	s.writer.Send(s.serviceId, zmq.SNDMORE)
 	if msg.Source == "stderr" {
