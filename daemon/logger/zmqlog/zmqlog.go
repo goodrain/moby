@@ -3,7 +3,6 @@ package zmqlog
 import (
 	"fmt"
 	"sync"
-	"strings"
 
 	"github.com/Sirupsen/logrus"
 	zmq "github.com/pebbe/zmq4"
@@ -34,7 +33,6 @@ func init() {
 
 func New(ctx logger.Context) (logger.Logger, error) {
 	zmqaddress := ctx.Config[zmqAddress]
-	// fmt.Println("zmqaddress: ", zmqaddress)
 	
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
@@ -45,8 +43,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		serviceId string
 	)
 
-	tenantId = ctx.ExtraAttributes["TENANT_ID"]
-	serviceId = ctx.ExtraAttributes["SERVICE_ID"]
+	attrs := ctx.ExtraAttributes(nil)
+	tenantId = attrs["TENANT_ID"]
+	serviceId = attrs["SERVICE_ID"]
 	
 	if tenantId == "" {
 		tenantId = "default"
@@ -60,7 +59,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 
 	return &ZmqLogger{
 		writer: puber,
-		containerId: ctx.ID,
+		containerId: ctx.ID(),
 		tenantId : tenantId,
 		serviceId : serviceId,
 	}, nil
