@@ -3,6 +3,7 @@ package zmqlog
 import (
 	"fmt"
 	"sync"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
 	zmq "github.com/pebbe/zmq4"
@@ -39,13 +40,21 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		return nil, err
 	}
 	var (
+		env = make(map[string]string)
 		tenantId string
 		serviceId string
 	)
-
-	attrs := ctx.ExtraAttributes(nil)
-	tenantId = attrs["TENANT_ID"]
-	serviceId = attrs["SERVICE_ID"]
+	for _, pair := range ctx.ContainerEnv {
+		p := strings.SplitN(pair, "=", 2)
+		//logrus.Errorf("ContainerEnv pair: %s", pair)
+		if len(p) == 2 {
+			key :=p[0]
+			value :=p[1]
+			env[key] = value
+		}
+	}
+	tenantId = env["TENANT_ID"]
+	serviceId = env["SERVICE_ID"]
 	
 	if tenantId == "" {
 		tenantId = "default"
