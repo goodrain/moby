@@ -31,7 +31,6 @@ type StdWatcher struct {
 
 //CreateWatcher 创建容器标准输入输出观察者
 func CreateWatcher(d *daemon.Daemon, close chan struct{}, watchimage string) Watcher {
-	logrus.Info("RunContaiers StdWatch has completed create")
 	w := &StdWatcher{
 		RunDaemon:  d,
 		Handle:     make(chan *container.Container, 5),
@@ -40,6 +39,7 @@ func CreateWatcher(d *daemon.Daemon, close chan struct{}, watchimage string) Wat
 		stop:       make(chan struct{}),
 		WatchImage: watchimage,
 	}
+	logrus.Info("RunContaiers StdWatch has completed create")
 	return w
 }
 
@@ -48,6 +48,7 @@ func (sw *StdWatcher) clear() {
 	defer sw.CWLock.Unlock()
 	for _, v := range sw.CopyWork {
 		close(v.closed)
+		v.wait()
 	}
 	sw.CopyWork = nil
 }
@@ -118,8 +119,10 @@ func (sw *StdWatcher) checkheath(stop chan struct{}) {
 			if (v.srcContainer != nil && !v.srcContainer.IsRunning()) || (v.dstContainer != nil && !v.dstContainer.IsRunning()) {
 				cacheDelete = append(cacheDelete, k)
 			}
-			if v.status == "error" { //发生错误，尝试重连
-				v.Run()
+			if v.status == "error" { //发生错误，尝试重连,判断容器是否已删除
+				if v.srcContainer != nil && v.dstContainer != nil {
+					v.Run()
+				}
 			}
 		}
 		if len(cacheDelete) > 0 {
@@ -264,4 +267,9 @@ func (c *WatcherCopy) find(f func(*container.Container) bool) {
 			}
 		}
 	}
+}
+
+//wait 等待所有copy结束
+func (c *WatcherCopy) wait() {
+	c.copyJobs.Wait()
 }
