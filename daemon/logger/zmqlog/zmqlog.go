@@ -6,21 +6,21 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
-	zmq "github.com/pebbe/zmq4"
 	"github.com/docker/docker/daemon/logger"
+	zmq "github.com/pebbe/zmq4"
 )
 
 const (
-	name 				= "zmqlog"
-	zmqAddress 			= "zmq-address"
+	name       = "zmqlog"
+	zmqAddress = "zmq-address"
 )
 
 type ZmqLogger struct {
-	writer *zmq.Socket
+	writer      *zmq.Socket
 	containerId string
-	tenantId string
-	serviceId string
-	lock      sync.Mutex
+	tenantId    string
+	serviceId   string
+	felock      sync.Mutex
 }
 
 func init() {
@@ -34,28 +34,28 @@ func init() {
 
 func New(ctx logger.Context) (logger.Logger, error) {
 	zmqaddress := ctx.Config[zmqAddress]
-	
+
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		return nil, err
 	}
 	var (
-		env = make(map[string]string)
-		tenantId string
+		env       = make(map[string]string)
+		tenantId  string
 		serviceId string
 	)
 	for _, pair := range ctx.ContainerEnv {
 		p := strings.SplitN(pair, "=", 2)
 		//logrus.Errorf("ContainerEnv pair: %s", pair)
 		if len(p) == 2 {
-			key :=p[0]
-			value :=p[1]
+			key := p[0]
+			value := p[1]
 			env[key] = value
 		}
 	}
 	tenantId = env["TENANT_ID"]
 	serviceId = env["SERVICE_ID"]
-	
+
 	if tenantId == "" {
 		tenantId = "default"
 	}
@@ -67,29 +67,30 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	puber.Connect(zmqaddress)
 
 	return &ZmqLogger{
-		writer: puber,
+		writer:      puber,
 		containerId: ctx.ID(),
-		tenantId : tenantId,
-		serviceId : serviceId,
+		tenantId:    tenantId,
+		serviceId:   serviceId,
+		felock:      sync.Mutex{},
 	}, nil
 }
 
 func (s *ZmqLogger) Log(msg *logger.Message) error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.felock.Lock()
+	defer s.felock.Unlock()
 	s.writer.Send(s.tenantId, zmq.SNDMORE)
 	s.writer.Send(s.serviceId, zmq.SNDMORE)
 	if msg.Source == "stderr" {
-		s.writer.Send(s.containerId + ": " + string(msg.Line), zmq.DONTWAIT)
+		s.writer.Send(s.containerId+": "+string(msg.Line), zmq.DONTWAIT)
 	} else {
-		s.writer.Send(s.containerId + ": " + string(msg.Line), zmq.DONTWAIT)
+		s.writer.Send(s.containerId+": "+string(msg.Line), zmq.DONTWAIT)
 	}
 	return nil
 }
 
 func (s *ZmqLogger) Close() error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.felock.Lock()
+	defer s.felock.Unlock()
 	if s.writer != nil {
 		return s.writer.Close()
 	}

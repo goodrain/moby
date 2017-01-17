@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	daemonCli = NewDaemonCli()
-	flHelp    = flag.Bool([]string{"h", "-help"}, false, "Print usage")
-	flVersion = flag.Bool([]string{"v", "-version"}, false, "Print version information and quit")
+	daemonCli  = NewDaemonCli()
+	flHelp     = flag.Bool([]string{"h", "-help"}, false, "Print usage")
+	flVersion  = flag.Bool([]string{"v", "-version"}, false, "Print version information and quit")
+	watchImage = flag.String([]string{"wi", "-watchimage"}, "", "The image of container that be watched by StdWatcher")
 )
 
 func main() {
@@ -63,6 +64,8 @@ func main() {
 	if err != nil {
 		logrus.Fatal(err)
 	}
+	//将watchImage传入daemoncli
+	daemonCli.WatchImage = *watchImage
 
 	if !stop {
 		err = daemonCli.start()
