@@ -212,6 +212,7 @@ func (c *WatcherCopy) Run() {
 		c.status = "running"
 		go c.copySrc(src, w)
 	}
+	logrus.Info("A log match containers start copy log.")
 }
 
 func (c *WatcherCopy) copySrc(name string, src io.Reader) {
@@ -226,24 +227,28 @@ func (c *WatcherCopy) copySrc(name string, src io.Reader) {
 	for {
 		select {
 		case <-c.closed:
-			c.dst.Close()
+			if c.dstContainer != nil {
+				c.dst.Close()
+			}
 			c.status = "closed"
-			logrus.Debug("WatcherCopy copySrc closed")
+			logrus.Info("A WatcherCopy copySrc closed")
 			return
 		default:
-			line, err := reader.ReadBytes('\n')
-			//line = bytes.TrimSuffix(line, []byte{'\n'})
-			// ReadBytes can return full or partial output even when it failed.
-			// e.g. it can return a full entry and EOF.
-			if err == nil || len(line) > 0 {
-				c.dst.Write(line)
-			}
-			if err != nil {
-				if err != io.EOF {
-					logrus.Errorf("Error scanning log stream: %s", err)
+			if c.srcContainer != nil {
+				line, err := reader.ReadBytes('\n')
+				//line = bytes.TrimSuffix(line, []byte{'\n'})
+				// ReadBytes can return full or partial output even when it failed.
+				// e.g. it can return a full entry and EOF.
+				if err == nil || len(line) > 0 {
+					c.dst.Write(line)
 				}
-				c.status = "error"
-				return
+				if err != nil {
+					if err != io.EOF {
+						logrus.Errorf("Error scanning log stream: %s", err)
+					}
+					c.status = "error"
+					return
+				}
 			}
 		}
 	}
