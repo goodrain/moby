@@ -227,9 +227,9 @@ func (c *WatcherCopy) copySrc(name string, src io.Reader) {
 	for {
 		select {
 		case <-c.closed:
-			if c.dstContainer != nil {
-				c.dst.Close()
-			}
+			// if c.dstContainer != nil {
+			// 	c.dst.Close()
+			// }
 			c.status = "closed"
 			logrus.Info("A WatcherCopy copySrc closed")
 			return
