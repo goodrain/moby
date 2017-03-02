@@ -70,13 +70,11 @@ func (sw *StdWatcher) handle(stop chan struct{}) {
 						if strings.HasPrefix(env, "SERVICE_ID") {
 							serviceID = strings.Split(env, "=")[1]
 						}
-						if strings.HasPrefix(env, "SERVICE_POD") {
-							servicePod = strings.Split(env, "=")[1]
-						}
 						if strings.HasPrefix(env, "TENANT_ID") {
 							tenantID = strings.Split(env, "=")[1]
 						}
 					}
+					servicePod = c.Config.Hostname
 					if serviceID == "" || servicePod == "" || tenantID == "" {
 						logrus.Warningf("The WatchContainer (%s) is not define endpoint", c.Name)
 					} else {
