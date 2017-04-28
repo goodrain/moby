@@ -6,7 +6,7 @@ function get_git_commits {
     describe_items=($(echo $gitDescribe | tr '-' ' '))
     describe_len=${#describe_items[@]}
     if [ $describe_len -eq 3 ];then
-        echo ${describe_items[1]}-${describe_items[2]}
+        echo ${describe_items[1]}.${describe_items[2]}
     else
         echo 0
     fi
@@ -107,6 +107,12 @@ function get_git_commits {
 		awk '$1 == "ENV" && $2 == "RUNC_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
 		awk '$1 == "ENV" && $2 == "CONTAINERD_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
 
+		# add libzmq for docker
+		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
+            ADD libzmq3 /usr/local/libzmq3
+            RUN echo /usr/local/libzmq3/lib > /etc/ld.so.conf.d/zmq.conf && ldconfig
+            ENV PKG_CONFIG_PATH /usr/local/libzmq3/lib/pkgconfig
+		EOF
 		# add runc and containerd compile and install
 		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
 			# Install runc
