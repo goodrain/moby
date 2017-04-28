@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
 
+function get_git_commits {
+    gitDescribe=$(git describe --tag)
+    describe_items=($(echo $gitDescribe | tr '-' ' '))
+    describe_len=${#describe_items[@]}
+    if [ $describe_len -eq 3 ];then
+        echo ${describe_items[1]}-${describe_items[2]}
+    else
+        echo 0
+    fi
+}
+
 # subshell so that we can export PATH and TZ without breaking other things
 (
 	export TZ=UTC # make sure our "date" variables are UTC-based
@@ -12,7 +23,7 @@ set -e
 
 	rpmName=docker-engine
 	rpmVersion="$VERSION"
-	rpmRelease=1
+	rpmRelease=`get_git_commits`
 
 	# rpmRelease versioning is as follows
 	# Docker 1.7.0:  version=1.7.0, release=1
@@ -34,14 +45,14 @@ set -e
 	fi
 
 	# if we have a "-dev" suffix or have change in Git, let's make this package version more complex so it works better
-	if [[ "$rpmVersion" == *-dev ]] || [ -n "$(git status --porcelain)" ]; then
+	if [[ "$rpmVersion" == *-dev ]]; then
 		gitUnix="$(git log -1 --pretty='%at')"
 		gitDate="$(date --date "@$gitUnix" +'%Y%m%d.%H%M%S')"
 		gitCommit="$(git log -1 --pretty='%h')"
-		gitVersion="g${gitCommit}"
+		gitVersion="${gitDate}.git${gitCommit}"
 		# gitVersion is now something like '20150128.112847.17e840a'
 		rpmVersion="${rpmVersion%-dev}"
-		rpmRelease="$gitVersion"
+		rpmRelease="0.0.$gitVersion"
 	fi
 
 	# Replace any other dashes with periods
@@ -95,13 +106,6 @@ set -e
 		# get the RUNC and CONTAINERD commit from the root Dockerfile, this keeps the commits in sync
 		awk '$1 == "ENV" && $2 == "RUNC_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
 		awk '$1 == "ENV" && $2 == "CONTAINERD_COMMIT" { print; exit }' Dockerfile >> "$DEST/$version/Dockerfile.build"
-
-		# add libzmq for docker
-		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
-            ADD libzmq3 /usr/local/libzmq3
-            RUN echo /usr/local/libzmq3/lib > /etc/ld.so.conf.d/zmq.conf && ldconfig
-            ENV PKG_CONFIG_PATH /usr/local/libzmq3/lib/pkgconfig
-		EOF
 
 		# add runc and containerd compile and install
 		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
