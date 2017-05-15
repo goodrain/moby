@@ -2,12 +2,17 @@ package zmqlog
 
 import (
 	"fmt"
-	"sync"
+	"net/http"
 	"strings"
+	"sync"
+	"time"
+
+	"encoding/json"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
 	zmq "github.com/pebbe/zmq4"
+	"github.com/twinj/uuid"
 )
 
 const (
@@ -17,9 +22,12 @@ const (
 
 type ZmqLogger struct {
 	writer      *zmq.Socket
+	stopChan    chan bool
 	containerId string
 	tenantId    string
 	serviceId   string
+	monitorID   string
+	ctx         logger.Context
 	felock      sync.Mutex
 }
 
@@ -32,8 +40,16 @@ func init() {
 	}
 }
 
+var defaultClusterAddress = "http://region.goodrain.me:6363/docker-instance"
+var defaultAddress = "tcp://region.goodrain.me:6362"
+
 func New(ctx logger.Context) (logger.Logger, error) {
-	zmqaddress := ctx.Config[zmqAddress]
+	var logAddress string
+	if zmqaddress, ok := ctx.Config[zmqAddress]; !ok {
+		logAddress = GetLogAddress()
+	} else {
+		logAddress = zmqaddress
+	}
 
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
@@ -55,6 +71,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}
 	tenantId = env["TENANT_ID"]
 	serviceId = env["SERVICE_ID"]
+	uuid := uuid.NewV4()
+
+	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
 
 	if tenantId == "" {
 		tenantId = "default"
@@ -64,21 +83,28 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		serviceId = "default"
 	}
 
-	puber.Connect(zmqaddress)
+	err = puber.Connect(logAddress)
+	if err != nil {
+		return nil, err
+	}
 
-	return &ZmqLogger{
+	logger := &ZmqLogger{
 		writer:      puber,
 		containerId: ctx.ID(),
 		tenantId:    tenantId,
 		serviceId:   serviceId,
 		felock:      sync.Mutex{},
-	}, nil
+		monitorID:   uuid.String(),
+		stopChan:    make(chan bool),
+		ctx:         ctx,
+	}
+	go logger.monitor()
+	return logger, nil
 }
 
 func (s *ZmqLogger) Log(msg *logger.Message) error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	s.writer.Send(s.tenantId, zmq.SNDMORE)
 	s.writer.Send(s.serviceId, zmq.SNDMORE)
 	if msg.Source == "stderr" {
 		s.writer.Send(s.containerId+": "+string(msg.Line), zmq.DONTWAIT)
@@ -91,6 +117,7 @@ func (s *ZmqLogger) Log(msg *logger.Message) error {
 func (s *ZmqLogger) Close() error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
+	close(s.stopChan)
 	if s.writer != nil {
 		return s.writer.Close()
 	}
@@ -99,6 +126,60 @@ func (s *ZmqLogger) Close() error {
 
 func (s *ZmqLogger) Name() string {
 	return name
+}
+
+func (s *ZmqLogger) monitor() {
+	mo, _ := zmq.NewSocket(zmq.PAIR)
+	mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
+	var retry int
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-time.Tick(time.Millisecond * 100):
+		}
+		event, _, _, err := mo.RecvEvent(0)
+		if err != nil {
+			logrus.Error("Zmq Logger monitor zmq connection error.", err)
+			continue
+		}
+		if event.String() == "EVENT_CLOSED" {
+			retry++
+			if retry > 120 { //每秒2次，重试2分钟，120次
+				s.reConnect()
+				return
+			}
+		}
+		if event.String() == "EVENT_CONNECTED" {
+			retry = 0
+		}
+	}
+}
+
+func (s *ZmqLogger) reConnect() {
+	logrus.Info("Zmq Logger start reConnect zmq server.")
+	var logAddress string
+	if zmqaddress, ok := s.ctx.Config[zmqAddress]; !ok {
+		logAddress = GetLogAddress()
+	} else {
+		logAddress = zmqaddress
+	}
+
+	puber, err := zmq.NewSocket(zmq.PUB)
+	if err != nil {
+		logrus.Error("ReConnect create socket error.", err.Error())
+		return
+	}
+	err = puber.Connect(logAddress)
+	if err != nil {
+		logrus.Errorf("ReConnect socket connect %s error. %s", logAddress, err.Error())
+		return
+	}
+	uuid := uuid.NewV4()
+	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
+	s.monitorID = uuid.String()
+	s.writer = puber
+	go s.monitor()
 }
 
 func ValidateLogOpt(cfg map[string]string) error {
@@ -113,4 +194,50 @@ func ValidateLogOpt(cfg map[string]string) error {
 		return fmt.Errorf("must specify a value for log opt '%s'", zmqAddress)
 	}
 	return nil
+}
+
+func GetLogAddress() string {
+	var clusterAddress []string
+
+	res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
+	if err != nil {
+		logrus.Errorf("Error get docker log instance from region api: %v", err)
+		clusterAddress = append(clusterAddress, defaultClusterAddress)
+	}
+	var instances = make([]map[string]interface{}, 0)
+	err = json.NewDecoder(res.Body).Decode(&instances)
+	if err != nil {
+		logrus.Errorf("Error Decode instance info: %v", err)
+		clusterAddress = append(clusterAddress, defaultClusterAddress)
+	}
+	res.Body.Close()
+	if len(instances) > 0 {
+		for _, ins := range instances {
+			if hostIP, ok := ins["HostIP"]; ok {
+				if webPort, ok := ins["WebPort"]; ok {
+					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance", hostIP, webPort))
+				}
+			}
+		}
+	}
+	if len(clusterAddress) < 1 {
+		clusterAddress = append(clusterAddress, defaultClusterAddress)
+	}
+	for _, address := range clusterAddress {
+		res, err := http.DefaultClient.Get(address)
+		if err != nil {
+			continue
+		}
+		var host = make(map[string]string)
+		err = json.NewDecoder(res.Body).Decode(&host)
+		if err != nil {
+			logrus.Errorf("Error Decode BEST instance host info: %v", err)
+			continue
+		}
+		res.Body.Close()
+		if status, ok := host["status"]; ok && status == "success" {
+			return host["host"]
+		}
+	}
+	return defaultAddress
 }
