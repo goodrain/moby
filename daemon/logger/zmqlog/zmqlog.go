@@ -11,8 +11,8 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
+	"github.com/pborman/uuid"
 	zmq "github.com/pebbe/zmq4"
-	"github.com/twinj/uuid"
 )
 
 const (
@@ -71,7 +71,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}
 	tenantId = env["TENANT_ID"]
 	serviceId = env["SERVICE_ID"]
-	uuid := uuid.NewV4()
+	uuid := uuid.New()
 
 	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
 
@@ -94,7 +94,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		tenantId:    tenantId,
 		serviceId:   serviceId,
 		felock:      sync.Mutex{},
-		monitorID:   uuid.String(),
+		monitorID:   uuid,
 		stopChan:    make(chan bool),
 		ctx:         ctx,
 	}
@@ -175,9 +175,9 @@ func (s *ZmqLogger) reConnect() {
 		logrus.Errorf("ReConnect socket connect %s error. %s", logAddress, err.Error())
 		return
 	}
-	uuid := uuid.NewV4()
+	uuid := uuid.New()
 	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
-	s.monitorID = uuid.String()
+	s.monitorID = uuid
 	s.writer = puber
 	go s.monitor()
 }
