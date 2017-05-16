@@ -24,6 +24,5 @@ func TestZMQLog(t *testing.T) {
 			Source:    "stdout",
 		})
 		time.Sleep(time.Millisecond * 10)
-		t.Log("Send a message .")
 	}
 }

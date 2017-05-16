@@ -64,6 +64,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	var logAddress string
 	if zmqaddress, ok := ctx.Config[zmqAddress]; !ok {
 		logAddress = GetLogAddress(serviceId)
+		logrus.Infof("get a log server address %s", logAddress)
 	} else {
 		logAddress = zmqaddress
 	}
@@ -203,15 +204,18 @@ func ValidateLogOpt(cfg map[string]string) error {
 func GetLogAddress(serviceID string) string {
 	var clusterAddress []string
 
-	res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
-	//res, err := http.DefaultClient.Get("http://test.goodrain.com:8888/v1/etcd/event-log/instances")
+	//res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
+	res, err := http.DefaultClient.Get("http://test.goodrain.com:8888/v1/etcd/event-log/instances")
 	if err != nil {
 		logrus.Errorf("Error get docker log instance from region api: %v", err)
 		clusterAddress = append(clusterAddress, defaultClusterAddress)
 	}
 	var instances = struct {
 		Data struct {
-			Instance []map[string]interface{} `json:"instance"`
+			Instance []struct {
+				HostIP  string
+				WebPort int
+			} `json:"instance"`
 		} `json:"data"`
 		OK bool `json:"ok"`
 	}{}
@@ -223,10 +227,8 @@ func GetLogAddress(serviceID string) string {
 	res.Body.Close()
 	if len(instances.Data.Instance) > 0 {
 		for _, ins := range instances.Data.Instance {
-			if hostIP, ok := ins["HostIP"]; ok {
-				if webPort, ok := ins["WebPort"]; ok {
-					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s", hostIP, webPort, serviceID))
-				}
+			if ins.HostIP != "" && ins.WebPort != 0 {
+				clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s", ins.HostIP, ins.WebPort, serviceID))
 			}
 		}
 	}
