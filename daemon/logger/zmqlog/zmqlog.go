@@ -190,17 +190,18 @@ func ValidateLogOpt(cfg map[string]string) error {
 			return fmt.Errorf("unknown log opt '%s' for %s log driver", key, name)
 		}
 	}
-	if cfg[zmqAddress] == "" {
-		return fmt.Errorf("must specify a value for log opt '%s'", zmqAddress)
-	}
+	// zmqAddress不需要强制设置
+	// if cfg[zmqAddress] == "" {
+	// 	return fmt.Errorf("must specify a value for log opt '%s'", zmqAddress)
+	// }
 	return nil
 }
 
 func GetLogAddress() string {
 	var clusterAddress []string
 
-	//res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
-	res, err := http.DefaultClient.Get("http://test.goodrain.com:8888/v1/etcd/event-log/instances")
+	res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
+	//res, err := http.DefaultClient.Get("http://test.goodrain.com:8888/v1/etcd/event-log/instances")
 	if err != nil {
 		logrus.Errorf("Error get docker log instance from region api: %v", err)
 		clusterAddress = append(clusterAddress, defaultClusterAddress)
