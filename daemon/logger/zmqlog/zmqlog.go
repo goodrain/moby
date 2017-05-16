@@ -199,20 +199,26 @@ func ValidateLogOpt(cfg map[string]string) error {
 func GetLogAddress() string {
 	var clusterAddress []string
 
-	res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
+	//res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
+	res, err := http.DefaultClient.Get("http://test.goodrain.com:8888/v1/etcd/event-log/instances")
 	if err != nil {
 		logrus.Errorf("Error get docker log instance from region api: %v", err)
 		clusterAddress = append(clusterAddress, defaultClusterAddress)
 	}
-	var instances = make([]map[string]interface{}, 0)
+	var instances = struct {
+		Data struct {
+			Instance []map[string]interface{} `json:"instance"`
+		} `json:"data"`
+		OK bool `json:"ok"`
+	}{}
 	err = json.NewDecoder(res.Body).Decode(&instances)
 	if err != nil {
 		logrus.Errorf("Error Decode instance info: %v", err)
 		clusterAddress = append(clusterAddress, defaultClusterAddress)
 	}
 	res.Body.Close()
-	if len(instances) > 0 {
-		for _, ins := range instances {
+	if len(instances.Data.Instance) > 0 {
+		for _, ins := range instances.Data.Instance {
 			if hostIP, ok := ins["HostIP"]; ok {
 				if webPort, ok := ins["WebPort"]; ok {
 					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance", hostIP, webPort))
