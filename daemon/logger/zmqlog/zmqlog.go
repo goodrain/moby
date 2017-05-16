@@ -23,9 +23,9 @@ const (
 type ZmqLogger struct {
 	writer      *zmq.Socket
 	stopChan    chan bool
-	containerId string
-	tenantId    string
-	serviceId   string
+	containerID string
+	tenantID    string
+	serviceID   string
 	monitorID   string
 	ctx         logger.Context
 	felock      sync.Mutex
@@ -44,17 +44,6 @@ var defaultClusterAddress = "http://region.goodrain.me:6363/docker-instance"
 var defaultAddress = "tcp://region.goodrain.me:6362"
 
 func New(ctx logger.Context) (logger.Logger, error) {
-	var logAddress string
-	if zmqaddress, ok := ctx.Config[zmqAddress]; !ok {
-		logAddress = GetLogAddress()
-	} else {
-		logAddress = zmqaddress
-	}
-
-	puber, err := zmq.NewSocket(zmq.PUB)
-	if err != nil {
-		return nil, err
-	}
 	var (
 		env       = make(map[string]string)
 		tenantId  string
@@ -71,6 +60,18 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}
 	tenantId = env["TENANT_ID"]
 	serviceId = env["SERVICE_ID"]
+
+	var logAddress string
+	if zmqaddress, ok := ctx.Config[zmqAddress]; !ok {
+		logAddress = GetLogAddress(serviceId)
+	} else {
+		logAddress = zmqaddress
+	}
+
+	puber, err := zmq.NewSocket(zmq.PUB)
+	if err != nil {
+		return nil, err
+	}
 	uuid := uuid.New()
 
 	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
@@ -90,9 +91,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 
 	logger := &ZmqLogger{
 		writer:      puber,
-		containerId: ctx.ID(),
-		tenantId:    tenantId,
-		serviceId:   serviceId,
+		containerID: ctx.ID(),
+		tenantID:    tenantId,
+		serviceID:   serviceId,
 		felock:      sync.Mutex{},
 		monitorID:   uuid,
 		stopChan:    make(chan bool),
@@ -105,11 +106,11 @@ func New(ctx logger.Context) (logger.Logger, error) {
 func (s *ZmqLogger) Log(msg *logger.Message) error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	s.writer.Send(s.serviceId, zmq.SNDMORE)
+	s.writer.Send(s.serviceID, zmq.SNDMORE)
 	if msg.Source == "stderr" {
-		s.writer.Send(s.containerId+": "+string(msg.Line), zmq.DONTWAIT)
+		s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
 	} else {
-		s.writer.Send(s.containerId+": "+string(msg.Line), zmq.DONTWAIT)
+		s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
 	}
 	return nil
 }
@@ -160,7 +161,7 @@ func (s *ZmqLogger) reConnect() {
 	logrus.Info("Zmq Logger start reConnect zmq server.")
 	var logAddress string
 	if zmqaddress, ok := s.ctx.Config[zmqAddress]; !ok {
-		logAddress = GetLogAddress()
+		logAddress = GetLogAddress(s.serviceID)
 	} else {
 		logAddress = zmqaddress
 	}
@@ -182,6 +183,7 @@ func (s *ZmqLogger) reConnect() {
 	go s.monitor()
 }
 
+//ValidateLogOpt 参数检测
 func ValidateLogOpt(cfg map[string]string) error {
 	for key := range cfg {
 		switch key {
@@ -197,7 +199,8 @@ func ValidateLogOpt(cfg map[string]string) error {
 	return nil
 }
 
-func GetLogAddress() string {
+// GetLogAddress 动态获取日志服务端地址
+func GetLogAddress(serviceID string) string {
 	var clusterAddress []string
 
 	res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
@@ -222,7 +225,7 @@ func GetLogAddress() string {
 		for _, ins := range instances.Data.Instance {
 			if hostIP, ok := ins["HostIP"]; ok {
 				if webPort, ok := ins["WebPort"]; ok {
-					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance", hostIP, webPort))
+					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s", hostIP, webPort, serviceID))
 				}
 			}
 		}
