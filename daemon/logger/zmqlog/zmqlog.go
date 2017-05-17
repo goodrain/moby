@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"encoding/json"
 
@@ -29,6 +28,7 @@ type ZmqLogger struct {
 	monitorID   string
 	ctx         logger.Context
 	felock      sync.Mutex
+	logAddress  string
 }
 
 func init() {
@@ -64,7 +64,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	var logAddress string
 	if zmqaddress, ok := ctx.Config[zmqAddress]; !ok {
 		logAddress = GetLogAddress(serviceId)
-		logrus.Infof("get a log server address %s", logAddress)
+		logrus.Debugf("get a log server address %s", logAddress)
 	} else {
 		logAddress = zmqaddress
 	}
@@ -99,6 +99,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		monitorID:   uuid,
 		stopChan:    make(chan bool),
 		ctx:         ctx,
+		logAddress:  logAddress,
 	}
 	go logger.monitor()
 	return logger, nil
@@ -107,11 +108,17 @@ func New(ctx logger.Context) (logger.Logger, error) {
 func (s *ZmqLogger) Log(msg *logger.Message) error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	s.writer.Send(s.serviceID, zmq.SNDMORE)
+	_, err := s.writer.Send(s.serviceID, zmq.SNDMORE)
+	if err != nil {
+		logrus.Error("Log Send error:", err.Error())
+	}
 	if msg.Source == "stderr" {
-		s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
+		_, err = s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
 	} else {
-		s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
+		_, err = s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
+	}
+	if err != nil {
+		logrus.Error("Log Send error:", err.Error())
 	}
 	return nil
 }
@@ -132,56 +139,60 @@ func (s *ZmqLogger) Name() string {
 
 func (s *ZmqLogger) monitor() {
 	mo, _ := zmq.NewSocket(zmq.PAIR)
+	defer mo.Close()
 	mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
 	var retry int
+	var eventChan = make(chan zmq.Event, 5)
+	go func(mo *zmq.Socket) {
+		for {
+			event, _, _, err := mo.RecvEvent(0)
+			if err != nil {
+				logrus.Error("Zmq Logger monitor zmq connection error.", err)
+				return
+			}
+			eventChan <- event
+		}
+	}(mo)
 	for {
 		select {
 		case <-s.stopChan:
 			return
-		case <-time.Tick(time.Millisecond * 100):
-		}
-		event, _, _, err := mo.RecvEvent(0)
-		if err != nil {
-			logrus.Error("Zmq Logger monitor zmq connection error.", err)
-			continue
-		}
-		if event.String() == "EVENT_CLOSED" {
-			retry++
-			if retry > 120 { //每秒2次，重试2分钟，120次
-				s.reConnect()
-				return
+		case event := <-eventChan:
+			if event.String() == "EVENT_CLOSED" {
+				retry++
+				if retry > 60 { //每秒2次，重试30s，60次
+					if err := s.reConnect(); err != nil {
+						retry = 0
+					}
+				}
+			}
+			if event.String() == "EVENT_CONNECTED" {
+				retry = 0
 			}
 		}
-		if event.String() == "EVENT_CONNECTED" {
-			retry = 0
-		}
+
 	}
 }
 
-func (s *ZmqLogger) reConnect() {
+func (s *ZmqLogger) reConnect() error {
 	logrus.Info("Zmq Logger start reConnect zmq server.")
 	var logAddress string
 	if zmqaddress, ok := s.ctx.Config[zmqAddress]; !ok {
 		logAddress = GetLogAddress(s.serviceID)
+		logrus.Info(logAddress)
 	} else {
 		logAddress = zmqaddress
 	}
-
-	puber, err := zmq.NewSocket(zmq.PUB)
-	if err != nil {
-		logrus.Error("ReConnect create socket error.", err.Error())
-		return
-	}
-	err = puber.Connect(logAddress)
+	s.felock.Lock()
+	defer s.felock.Unlock()
+	s.writer.Disconnect(s.logAddress)
+	err := s.writer.Connect(logAddress)
 	if err != nil {
 		logrus.Errorf("ReConnect socket connect %s error. %s", logAddress, err.Error())
-		return
+		return err
 	}
-	uuid := uuid.New()
-	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
-	s.monitorID = uuid
-	s.writer = puber
-	go s.monitor()
+	s.logAddress = logAddress
+	return nil
 }
 
 //ValidateLogOpt 参数检测
@@ -235,9 +246,14 @@ func GetLogAddress(serviceID string) string {
 	if len(clusterAddress) < 1 {
 		clusterAddress = append(clusterAddress, defaultClusterAddress)
 	}
+	return getLogAddress(clusterAddress)
+}
+
+func getLogAddress(clusterAddress []string) string {
 	for _, address := range clusterAddress {
 		res, err := http.DefaultClient.Get(address)
 		if err != nil {
+			logrus.Warning("Error get host info from " + address)
 			continue
 		}
 		var host = make(map[string]string)

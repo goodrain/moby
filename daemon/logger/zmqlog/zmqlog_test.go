@@ -17,12 +17,17 @@ func TestZMQLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer log.Close()
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 10000; i++ {
 		log.Log(&logger.Message{
 			Line:      []byte("hello word"),
 			Timestamp: time.Now(),
 			Source:    "stdout",
 		})
-		time.Sleep(time.Millisecond * 10)
+		time.Sleep(time.Millisecond * 100)
 	}
+}
+
+func TestGetLogAddress(t *testing.T) {
+	adress := getLogAddress([]string{"http://127.0.0.1:2003/docker-instance?service_id=123", "http://127.0.0.1:6363/docker-instance?service_id=123"})
+	t.Log(adress)
 }
