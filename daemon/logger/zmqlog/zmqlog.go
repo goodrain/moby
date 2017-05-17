@@ -43,6 +43,7 @@ func init() {
 var defaultClusterAddress = "http://region.goodrain.me:6363/docker-instance"
 var defaultAddress = "tcp://region.goodrain.me:6362"
 
+//New 创建
 func New(ctx logger.Context) (logger.Logger, error) {
 	var (
 		env       = make(map[string]string)
@@ -105,6 +106,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	return logger, nil
 }
 
+//Log 发送
 func (s *ZmqLogger) Log(msg *logger.Message) error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
@@ -123,6 +125,7 @@ func (s *ZmqLogger) Log(msg *logger.Message) error {
 	return nil
 }
 
+//Close 关闭
 func (s *ZmqLogger) Close() error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
@@ -133,6 +136,7 @@ func (s *ZmqLogger) Close() error {
 	return nil
 }
 
+//Name 返回name
 func (s *ZmqLogger) Name() string {
 	return name
 }
@@ -161,7 +165,7 @@ func (s *ZmqLogger) monitor() {
 			if event.String() == "EVENT_CLOSED" {
 				retry++
 				if retry > 60 { //每秒2次，重试30s，60次
-					if err := s.reConnect(); err != nil {
+					if err := s.reConnect(); err == nil {
 						retry = 0
 					}
 				}
@@ -175,14 +179,13 @@ func (s *ZmqLogger) monitor() {
 }
 
 func (s *ZmqLogger) reConnect() error {
-	logrus.Info("Zmq Logger start reConnect zmq server.")
 	var logAddress string
 	if zmqaddress, ok := s.ctx.Config[zmqAddress]; !ok {
 		logAddress = GetLogAddress(s.serviceID)
-		logrus.Info(logAddress)
 	} else {
 		logAddress = zmqaddress
 	}
+	logrus.Info("Zmq Logger start reConnect zmq server:", logAddress)
 	s.felock.Lock()
 	defer s.felock.Unlock()
 	s.writer.Disconnect(s.logAddress)
@@ -214,9 +217,7 @@ func ValidateLogOpt(cfg map[string]string) error {
 // GetLogAddress 动态获取日志服务端地址
 func GetLogAddress(serviceID string) string {
 	var clusterAddress []string
-
-	//res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
-	res, err := http.DefaultClient.Get("http://test.goodrain.com:8888/v1/etcd/event-log/instances")
+	res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
 	if err != nil {
 		logrus.Errorf("Error get docker log instance from region api: %v", err)
 		clusterAddress = append(clusterAddress, defaultClusterAddress)
