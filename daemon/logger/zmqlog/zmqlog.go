@@ -148,7 +148,7 @@ func (s *ZmqLogger) Name() string {
 func (s *ZmqLogger) monitor() {
 	mo, _ := zmq.NewSocket(zmq.PAIR)
 	defer func() {
-		logrus.Info("closed monitor")
+		logrus.Info("closed monitor zmq socket.")
 	}()
 	err := mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
 	if err != nil {
@@ -163,7 +163,6 @@ func (s *ZmqLogger) monitor() {
 			switch soc := socket.Socket; soc {
 			case mo:
 				event, _, _, err := mo.RecvEvent(0)
-				logrus.Info(event)
 				if err != nil {
 					logrus.Warning("Zmq Logger monitor zmq connection error.", err)
 					return
@@ -181,6 +180,8 @@ func (s *ZmqLogger) monitor() {
 			}
 		}
 	}
+	// 只当容器退出时关闭monitor,重连时不能关闭monitor,需要测试此关闭会不会影响其他容器
+	mo.Close()
 }
 
 func (s *ZmqLogger) reConnect() error {
