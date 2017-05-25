@@ -22,7 +22,7 @@ function get_git_commits {
 
 	tilde='~' # ouch Bash 4.2 vs 4.3, you keel me
 	#debVersion="${VERSION//-/$tilde}" # using \~ or '~' here works in 4.3, but not 4.2; just ~ causes $HOME to be inserted, hence the $tilde
-	debVersion=`get_git_commits`
+	debVersion=${VERSION}-`get_git_commits`
 	# if we have a "-dev" suffix or have change in Git, let's make this package version more complex so it works better
 	if [[ "$VERSION" == *-dev ]]; then
 		gitUnix="$(git log -1 --pretty='%at')"
