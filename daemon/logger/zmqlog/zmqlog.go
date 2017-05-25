@@ -21,7 +21,7 @@ const (
 
 type ZmqLogger struct {
 	writer      *zmq.Socket
-	stopChan    chan bool
+	stop        bool
 	containerID string
 	tenantID    string
 	serviceID   string
@@ -98,7 +98,6 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		serviceID:   serviceID,
 		felock:      sync.Mutex{},
 		monitorID:   uuid,
-		stopChan:    make(chan bool),
 		ctx:         ctx,
 		logAddress:  logAddress,
 	}
@@ -133,7 +132,7 @@ func (s *ZmqLogger) Close() error {
 	logrus.Infof("ZMQ Logger Closing. %d", closed)
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	close(s.stopChan)
+	s.stop = true
 	if s.writer != nil {
 		s.writer.SetLinger(10)
 		err := s.writer.Close()
@@ -158,36 +157,34 @@ func (s *ZmqLogger) monitor() {
 	}()
 	mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
 	var retry int
-	var eventChan = make(chan zmq.Event, 5)
-	go func(mo *zmq.Socket) {
-		for {
-			event, _, _, err := mo.RecvEvent(0)
-			if err != nil {
-				logrus.Warning("Zmq Logger monitor zmq connection error.", err)
-				return
-			}
-			eventChan <- event
-		}
-	}(mo)
-	for {
-		select {
-		case <-s.stopChan:
-			return
-		case event := <-eventChan:
-			if event.String() == "EVENT_CLOSED" {
-				retry++
-				if retry > 60 { //每秒2次，重试30s，60次
-					if err := s.reConnect(); err == nil {
-						retry = 0
+
+	poller := zmq.NewPoller()
+	poller.Add(mo, zmq.POLLIN)
+	for !s.stop {
+		sockets, _ := poller.Poll(-1)
+		for _, socket := range sockets {
+			switch soc := socket.Socket; soc {
+			case mo:
+				event, _, _, err := mo.RecvEvent(0)
+				if err != nil {
+					logrus.Warning("Zmq Logger monitor zmq connection error.", err)
+					return
+				}
+				if event.String() == "EVENT_CLOSED" {
+					retry++
+					if retry > 60 { //每秒2次，重试30s，60次
+						if err := s.reConnect(); err == nil {
+							retry = 0
+						}
 					}
 				}
-			}
-			if event.String() == "EVENT_CONNECTED" {
-				retry = 0
+				if event.String() == "EVENT_CONNECTED" {
+					retry = 0
+				}
 			}
 		}
-
 	}
+	logrus.Infof("zmq socket monitor closed. %d", closed)
 }
 
 func (s *ZmqLogger) reConnect() error {
