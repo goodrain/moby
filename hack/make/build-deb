@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
 
+function get_git_commits {
+    gitDescribe=$(git describe --tag)
+    describe_items=($(echo $gitDescribe | tr '-' ' '))
+    describe_len=${#describe_items[@]}
+    if [ $describe_len -eq 3 ];then
+        echo ${describe_items[1]}.${describe_items[2]}
+    else
+        echo 0
+    fi
+}
+
 # subshell so that we can export PATH and TZ without breaking other things
 (
 	export TZ=UTC # make sure our "date" variables are UTC-based
@@ -10,9 +21,10 @@ set -e
 	# TODO consider using frozen images for the dockercore/builder-deb tags
 
 	tilde='~' # ouch Bash 4.2 vs 4.3, you keel me
-	debVersion="${VERSION//-/$tilde}" # using \~ or '~' here works in 4.3, but not 4.2; just ~ causes $HOME to be inserted, hence the $tilde
+	#debVersion="${VERSION//-/$tilde}" # using \~ or '~' here works in 4.3, but not 4.2; just ~ causes $HOME to be inserted, hence the $tilde
+	debVersion=`get_git_commits`
 	# if we have a "-dev" suffix or have change in Git, let's make this package version more complex so it works better
-	if [[ "$VERSION" == *-dev ]] || [ -n "$(git status --porcelain)" ]; then
+	if [[ "$VERSION" == *-dev ]]; then
 		gitUnix="$(git log -1 --pretty='%at')"
 		gitDate="$(date --date "@$gitUnix" +'%Y%m%d.%H%M%S')"
 		gitCommit="$(git log -1 --pretty='%h')"
