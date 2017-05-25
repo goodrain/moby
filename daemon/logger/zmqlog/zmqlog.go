@@ -131,8 +131,10 @@ func (s *ZmqLogger) Close() error {
 	defer s.felock.Unlock()
 	close(s.stopChan)
 	if s.writer != nil {
+		s.writer.SetLinger(0)
 		return s.writer.Close()
 	}
+	logrus.Info("ZMQ Logger Closed.")
 	return nil
 }
 
@@ -143,7 +145,10 @@ func (s *ZmqLogger) Name() string {
 
 func (s *ZmqLogger) monitor() {
 	mo, _ := zmq.NewSocket(zmq.PAIR)
-	defer mo.Close()
+	defer func() {
+		mo.SetLinger(0)
+		mo.Close()
+	}()
 	mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
 	var retry int
 	var eventChan = make(chan zmq.Event, 5)
