@@ -105,7 +105,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		ctx:         ctx,
 		logAddress:  logAddress,
 	}
-	go logger.monitor()
+	//go logger.monitor()
 	return logger, nil
 }
 
@@ -128,16 +128,23 @@ func (s *ZmqLogger) Log(msg *logger.Message) error {
 	return nil
 }
 
+var closed int
+
 //Close 关闭
 func (s *ZmqLogger) Close() error {
-	logrus.Info("ZMQ Logger Closing.")
+	closed++
+	logrus.Infof("ZMQ Logger Closing. %d", closed)
 	s.felock.Lock()
 	defer s.felock.Unlock()
 	close(s.stopChan)
 	if s.writer != nil {
 		s.writer.SetLinger(10)
-		return s.writer.Close()
+		err := s.writer.Close()
+		if err != nil {
+			return err
+		}
 	}
+	logrus.Infof("ZMQ Logger Closed. %d", closed)
 	return nil
 }
 
@@ -196,8 +203,12 @@ func (s *ZmqLogger) reConnect() error {
 	logrus.Info("Zmq Logger start reConnect zmq server:", logAddress)
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	s.writer.Disconnect(s.logAddress)
-	err := s.writer.Connect(logAddress)
+	err := s.writer.Disconnect(s.logAddress)
+	if err != nil {
+		logrus.Errorf("ReConnect socket Disconnect %s error. %s", logAddress, err.Error())
+		return err
+	}
+	err = s.writer.Connect(logAddress)
 	if err != nil {
 		logrus.Errorf("ReConnect socket connect %s error. %s", logAddress, err.Error())
 		return err
