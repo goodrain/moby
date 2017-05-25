@@ -50,8 +50,8 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	logrus.Infof("New a zmq logger.%d", i)
 	var (
 		env       = make(map[string]string)
-		tenantId  string
-		serviceId string
+		tenantID  string
+		serviceID string
 	)
 	for _, pair := range ctx.ContainerEnv {
 		p := strings.SplitN(pair, "=", 2)
@@ -62,50 +62,47 @@ func New(ctx logger.Context) (logger.Logger, error) {
 			env[key] = value
 		}
 	}
-	tenantId = env["TENANT_ID"]
-	serviceId = env["SERVICE_ID"]
+	tenantID = env["TENANT_ID"]
+	serviceID = env["SERVICE_ID"]
+	if tenantID == "" {
+		tenantID = "default"
+	}
+
+	if serviceID == "" {
+		serviceID = "default"
+	}
 
 	var logAddress string
 	if zmqaddress, ok := ctx.Config[zmqAddress]; !ok {
-		logAddress = GetLogAddress(serviceId)
+		logAddress = GetLogAddress(serviceID)
 		logrus.Debugf("get a log server address %s", logAddress)
 	} else {
 		logAddress = zmqaddress
 	}
-
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		return nil, err
 	}
-	uuid := uuid.New()
-
-	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
-
-	if tenantId == "" {
-		tenantId = "default"
-	}
-
-	if serviceId == "" {
-		serviceId = "default"
-	}
-
 	err = puber.Connect(logAddress)
 	if err != nil {
 		return nil, err
 	}
 
+	uuid := uuid.New()
+	puber.Monitor(fmt.Sprintf("inproc://%s.rep", uuid), zmq.EVENT_ALL)
+
 	logger := &ZmqLogger{
 		writer:      puber,
 		containerID: ctx.ID(),
-		tenantID:    tenantId,
-		serviceID:   serviceId,
+		tenantID:    tenantID,
+		serviceID:   serviceID,
 		felock:      sync.Mutex{},
 		monitorID:   uuid,
 		stopChan:    make(chan bool),
 		ctx:         ctx,
 		logAddress:  logAddress,
 	}
-	//go logger.monitor()
+	go logger.monitor()
 	return logger, nil
 }
 
