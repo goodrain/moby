@@ -42,9 +42,12 @@ func init() {
 
 var defaultClusterAddress = "http://region.goodrain.me:6363/docker-instance"
 var defaultAddress = "tcp://region.goodrain.me:6362"
+var i int
 
 //New 创建
 func New(ctx logger.Context) (logger.Logger, error) {
+	i++
+	logrus.Infof("New a zmq logger.%d", i)
 	var (
 		env       = make(map[string]string)
 		tenantId  string
@@ -127,14 +130,14 @@ func (s *ZmqLogger) Log(msg *logger.Message) error {
 
 //Close 关闭
 func (s *ZmqLogger) Close() error {
+	logrus.Info("ZMQ Logger Closing.")
 	s.felock.Lock()
 	defer s.felock.Unlock()
 	close(s.stopChan)
 	if s.writer != nil {
-		s.writer.SetLinger(0)
+		s.writer.SetLinger(10)
 		return s.writer.Close()
 	}
-	logrus.Info("ZMQ Logger Closed.")
 	return nil
 }
 
@@ -156,7 +159,7 @@ func (s *ZmqLogger) monitor() {
 		for {
 			event, _, _, err := mo.RecvEvent(0)
 			if err != nil {
-				logrus.Error("Zmq Logger monitor zmq connection error.", err)
+				logrus.Warning("Zmq Logger monitor zmq connection error.", err)
 				return
 			}
 			eventChan <- event
