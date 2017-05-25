@@ -42,12 +42,9 @@ func init() {
 
 var defaultClusterAddress = "http://region.goodrain.me:6363/docker-instance"
 var defaultAddress = "tcp://region.goodrain.me:6362"
-var i int
 
 //New 创建
 func New(ctx logger.Context) (logger.Logger, error) {
-	i++
-	logrus.Infof("New a zmq logger.%d", i)
 	var (
 		env       = make(map[string]string)
 		tenantID  string
@@ -124,12 +121,8 @@ func (s *ZmqLogger) Log(msg *logger.Message) error {
 	return nil
 }
 
-var closed int
-
 //Close 关闭
 func (s *ZmqLogger) Close() error {
-	closed++
-	logrus.Infof("ZMQ Logger Closing. %d", closed)
 	s.felock.Lock()
 	defer s.felock.Unlock()
 	s.stop = true
@@ -140,7 +133,6 @@ func (s *ZmqLogger) Close() error {
 			return err
 		}
 	}
-	logrus.Infof("ZMQ Logger Closed. %d", closed)
 	return nil
 }
 
@@ -173,9 +165,8 @@ func (s *ZmqLogger) monitor() {
 				if event.String() == "EVENT_CLOSED" {
 					retry++
 					if retry > 60 { //每秒2次，重试30s，60次
-						if err := s.reConnect(); err == nil {
-							retry = 0
-						}
+						go s.reConnect()
+						return
 					}
 				}
 				if event.String() == "EVENT_CONNECTED" {
@@ -184,7 +175,6 @@ func (s *ZmqLogger) monitor() {
 			}
 		}
 	}
-	logrus.Infof("zmq socket monitor closed. %d", closed)
 }
 
 func (s *ZmqLogger) reConnect() error {
@@ -208,6 +198,10 @@ func (s *ZmqLogger) reConnect() error {
 		return err
 	}
 	s.logAddress = logAddress
+	uuid := uuid.New()
+	s.monitorID = uuid
+	s.writer.Monitor(fmt.Sprintf("inproc://%s.rep", s.monitorID), zmq.EVENT_ALL)
+	go s.monitor()
 	return nil
 }
 
