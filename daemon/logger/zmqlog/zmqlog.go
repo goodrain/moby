@@ -1,5 +1,6 @@
 package zmqlog
 
+import "C"
 import (
 	"fmt"
 	"net/http"
@@ -7,6 +8,8 @@ import (
 	"sync"
 
 	"encoding/json"
+
+	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
@@ -72,10 +75,11 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	var logAddress string
 	if zmqaddress, ok := ctx.Config[zmqAddress]; !ok {
 		logAddress = GetLogAddress(serviceID)
-		logrus.Debugf("get a log server address %s", logAddress)
+		logrus.Infof("get a log server address %s", logAddress)
 	} else {
 		logAddress = zmqaddress
 	}
+
 	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		return nil, err
@@ -144,32 +148,34 @@ func (s *ZmqLogger) Name() string {
 func (s *ZmqLogger) monitor() {
 	mo, _ := zmq.NewSocket(zmq.PAIR)
 	defer func() {
-		mo.SetLinger(0)
-		mo.Close()
+		logrus.Info("closed monitor")
 	}()
-	mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
+	err := mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
+	if err != nil {
+		logrus.Error("monitor connect error.", err.Error())
+	}
 	var retry int
-
 	poller := zmq.NewPoller()
 	poller.Add(mo, zmq.POLLIN)
 	for !s.stop {
-		sockets, _ := poller.Poll(-1)
+		sockets, _ := poller.Poll(time.Second * 1)
 		for _, socket := range sockets {
 			switch soc := socket.Socket; soc {
 			case mo:
 				event, _, _, err := mo.RecvEvent(0)
+				logrus.Info(event)
 				if err != nil {
 					logrus.Warning("Zmq Logger monitor zmq connection error.", err)
 					return
 				}
-				if event.String() == "EVENT_CLOSED" {
+				if event == zmq.EVENT_CLOSED {
 					retry++
 					if retry > 60 { //每秒2次，重试30s，60次
 						go s.reConnect()
 						return
 					}
 				}
-				if event.String() == "EVENT_CONNECTED" {
+				if event == zmq.EVENT_CONNECTED {
 					retry = 0
 				}
 			}
@@ -192,12 +198,20 @@ func (s *ZmqLogger) reConnect() error {
 		logrus.Errorf("ReConnect socket Disconnect %s error. %s", logAddress, err.Error())
 		return err
 	}
+
 	err = s.writer.Connect(logAddress)
 	if err != nil {
 		logrus.Errorf("ReConnect socket connect %s error. %s", logAddress, err.Error())
 		return err
 	}
+	s.writer.Close()
+
+	s.writer, err = zmq.NewSocket(zmq.PUB)
+	if err != nil {
+		logrus.Error("Recreate zmq socket error.", err)
+	}
 	s.logAddress = logAddress
+	s.writer.Connect(logAddress)
 	uuid := uuid.New()
 	s.monitorID = uuid
 	s.writer.Monitor(fmt.Sprintf("inproc://%s.rep", s.monitorID), zmq.EVENT_ALL)
@@ -252,7 +266,7 @@ func GetLogAddress(serviceID string) string {
 		}
 	}
 	if len(clusterAddress) < 1 {
-		clusterAddress = append(clusterAddress, defaultClusterAddress)
+		clusterAddress = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID)
 	}
 	return getLogAddress(clusterAddress)
 }
@@ -261,7 +275,7 @@ func getLogAddress(clusterAddress []string) string {
 	for _, address := range clusterAddress {
 		res, err := http.DefaultClient.Get(address)
 		if err != nil {
-			logrus.Warning("Error get host info from " + address)
+			logrus.Warningf("Error get host info from %s. %s", address, err)
 			continue
 		}
 		var host = make(map[string]string)
