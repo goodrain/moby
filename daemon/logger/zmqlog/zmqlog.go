@@ -32,6 +32,7 @@ type ZmqLogger struct {
 	ctx         logger.Context
 	felock      sync.Mutex
 	logAddress  string
+	zmqCtx      *zmq.Context
 }
 
 func init() {
@@ -79,8 +80,13 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	} else {
 		logAddress = zmqaddress
 	}
-
-	puber, err := zmq.NewSocket(zmq.PUB)
+	var puber *zmq.Socket
+	zmqCtx, err := zmq.NewContext()
+	if err != nil {
+		logrus.Errorf("service %s create zmq context error. %s", serviceID, err.Error())
+		return nil, err
+	}
+	puber, err = zmqCtx.NewSocket(zmq.PUB)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +107,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		monitorID:   uuid,
 		ctx:         ctx,
 		logAddress:  logAddress,
+		zmqCtx:      zmqCtx,
 	}
+	//fmt.Printf("init zmq ctx: %p \n", logger.zmqCtx)
 	go logger.monitor()
 	return logger, nil
 }
@@ -137,6 +145,9 @@ func (s *ZmqLogger) Close() error {
 			return err
 		}
 	}
+	if s.zmqCtx != nil {
+		s.zmqCtx.Term()
+	}
 	return nil
 }
 
@@ -146,16 +157,31 @@ func (s *ZmqLogger) Name() string {
 }
 
 func (s *ZmqLogger) monitor() {
-	mo, _ := zmq.NewSocket(zmq.PAIR)
+	var mo *zmq.Socket
+	var poller *zmq.Poller
+	var err error
+	if s.zmqCtx != nil {
+		//fmt.Printf("monitor zmq ctx: %p \n", s.zmqCtx)
+		mo, err = s.zmqCtx.NewSocket(zmq.PAIR)
+		if err != nil {
+			logrus.Errorf("Service %s zmq logger monitor create error. %s", s.serviceID, err.Error())
+			return
+		}
+	} else {
+		logrus.Errorf("Service %s zmq logger monitor create error. zmq ctx is nil", s.serviceID)
+		return
+	}
 	defer func() {
 		logrus.Info("closed monitor zmq socket.")
+		mo.Close()
 	}()
-	err := mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
+	err = mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
 	if err != nil {
-		logrus.Error("monitor connect error.", err.Error())
+		logrus.Errorf("Service %s zmq loggermonitor connect error. %s", s.serviceID, err.Error())
+		return
 	}
 	var retry int
-	poller := zmq.NewPoller()
+	poller = zmq.NewPoller()
 	poller.Add(mo, zmq.POLLIN)
 	for !s.stop {
 		sockets, _ := poller.Poll(time.Second * 1)
@@ -164,7 +190,7 @@ func (s *ZmqLogger) monitor() {
 			case mo:
 				event, _, _, err := mo.RecvEvent(0)
 				if err != nil {
-					logrus.Warning("Zmq Logger monitor zmq connection error.", err)
+					logrus.Warningf("Service %s zmq Logger monitor zmq connection error. %s", s.serviceID, err)
 					return
 				}
 				if event == zmq.EVENT_CLOSED {
@@ -180,11 +206,11 @@ func (s *ZmqLogger) monitor() {
 			}
 		}
 	}
-	// 只当容器退出时关闭monitor,重连时不能关闭monitor,需要测试此关闭会不会影响其他容器
-	mo.Close()
 }
 
 func (s *ZmqLogger) reConnect() error {
+	s.felock.Lock()
+	defer s.felock.Unlock()
 	var logAddress string
 	if zmqaddress, ok := s.ctx.Config[zmqAddress]; !ok {
 		logAddress = GetLogAddress(s.serviceID)
@@ -192,18 +218,41 @@ func (s *ZmqLogger) reConnect() error {
 		logAddress = zmqaddress
 	}
 	logrus.Info("Zmq Logger start reConnect zmq server:", logAddress)
-	s.felock.Lock()
-	defer s.felock.Unlock()
-	s.writer.Close()
+
 	var err error
-	s.writer, err = zmq.NewSocket(zmq.PUB)
+	//必须设置，否则zmqCtx.Term()会阻塞
+	s.writer.SetLinger(0)
+	err = s.writer.Close()
 	if err != nil {
-		logrus.Error("Recreate zmq socket error.", err)
+		logrus.Errorf("service %s before Recreate zmq socket close old socket error. %s", s.serviceID, err)
+	}
+	//logrus.Info("zmq socket closed")
+
+	err = s.zmqCtx.Term()
+	if err != nil {
+		logrus.Errorf("service %s before Recreate zmq socket term ctx  error. %s", s.serviceID, err)
+	}
+	s.writer = nil
+	s.zmqCtx = nil
+	ctx, err := zmq.NewContext()
+	if err != nil {
+		return err
+	}
+	s.writer, err = ctx.NewSocket(zmq.PUB)
+	if err != nil {
+		logrus.Errorf("service %s Recreate zmq socket error. %s", s.serviceID, err)
+		return err
 	}
 	s.logAddress = logAddress
-	s.writer.Connect(logAddress)
+	err = s.writer.Connect(logAddress)
+	if err != nil {
+		logrus.Errorf("service %s Recreate zmq socket error. %s", s.serviceID, err)
+		return err
+	}
 	uuid := uuid.New()
 	s.monitorID = uuid
+	s.zmqCtx = ctx
+	//fmt.Printf("recreate zmq ctx: %p \n", s.zmqCtx)
 	s.writer.Monitor(fmt.Sprintf("inproc://%s.rep", s.monitorID), zmq.EVENT_ALL)
 	go s.monitor()
 	return nil
