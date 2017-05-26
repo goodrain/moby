@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"yiyun/common/log"
 
 	"encoding/json"
 
@@ -41,6 +42,7 @@ func init() {
 	if err := logger.RegisterLogOptValidator(name, ValidateLogOpt); err != nil {
 		logrus.Fatal(err)
 	}
+	zmq.SetMaxSockets(5000)
 }
 
 var defaultClusterAddress = "http://region.goodrain.me:6363/docker-instance"
@@ -186,16 +188,14 @@ func (s *ZmqLogger) monitor() {
 						} else {
 							logAddress = zmqaddress
 						}
-						go s.reConnect(logAddress)
-						return
-						// //
-						// if logAddress == s.logAddress {
-						// 	log.Infof("Service %s zmq Logger retry get address,but not change.", s.serviceID)
-						// 	retry = 0
-						// } else {
-						// 	go s.reConnect(logAddress)
-						// 	return
-						// }
+						// 若地址未改变，不进行重联
+						if logAddress == s.logAddress {
+							log.Infof("Service %s zmq Logger retry get address,but not change.", s.serviceID)
+							retry = 0
+						} else {
+							go s.reConnect(logAddress)
+							return
+						}
 					}
 				}
 				if event == zmq.EVENT_CONNECTED {
