@@ -194,19 +194,8 @@ func (s *ZmqLogger) reConnect() error {
 	logrus.Info("Zmq Logger start reConnect zmq server:", logAddress)
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	err := s.writer.Disconnect(s.logAddress)
-	if err != nil {
-		logrus.Errorf("ReConnect socket Disconnect %s error. %s", logAddress, err.Error())
-		return err
-	}
-
-	err = s.writer.Connect(logAddress)
-	if err != nil {
-		logrus.Errorf("ReConnect socket connect %s error. %s", logAddress, err.Error())
-		return err
-	}
 	s.writer.Close()
-
+	var err error
 	s.writer, err = zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		logrus.Error("Recreate zmq socket error.", err)
@@ -275,6 +264,9 @@ func GetLogAddress(serviceID string) string {
 func getLogAddress(clusterAddress []string) string {
 	for _, address := range clusterAddress {
 		res, err := http.DefaultClient.Get(address)
+		if res != nil && res.Body != nil {
+			defer res.Body.Close()
+		}
 		if err != nil {
 			logrus.Warningf("Error get host info from %s. %s", address, err)
 			continue
@@ -285,7 +277,6 @@ func getLogAddress(clusterAddress []string) string {
 			logrus.Errorf("Error Decode BEST instance host info: %v", err)
 			continue
 		}
-		res.Body.Close()
 		if status, ok := host["status"]; ok && status == "success" {
 			return host["host"]
 		}
