@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"yiyun/common/log"
 
 	"encoding/json"
 
@@ -190,7 +189,7 @@ func (s *ZmqLogger) monitor() {
 						}
 						// 若地址未改变，不进行重联
 						if logAddress == s.logAddress {
-							log.Infof("Service %s zmq Logger retry get address,but not change.", s.serviceID)
+							logrus.Infof("Service %s zmq Logger retry get address,but not change.", s.serviceID)
 							retry = 0
 						} else {
 							go s.reConnect(logAddress)
