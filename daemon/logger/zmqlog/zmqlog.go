@@ -139,7 +139,7 @@ func (s *ZmqLogger) Close() error {
 	defer s.felock.Unlock()
 	s.stop = true
 	if s.writer != nil {
-		s.writer.SetLinger(10)
+		s.writer.SetLinger(0)
 		err := s.writer.Close()
 		if err != nil {
 			return err
@@ -234,11 +234,13 @@ func (s *ZmqLogger) reConnect() error {
 	}
 	s.writer = nil
 	s.zmqCtx = nil
+
 	ctx, err := zmq.NewContext()
 	if err != nil {
 		return err
 	}
-	s.writer, err = ctx.NewSocket(zmq.PUB)
+	s.zmqCtx = ctx
+	s.writer, err = s.zmqCtx.NewSocket(zmq.PUB)
 	if err != nil {
 		logrus.Errorf("service %s Recreate zmq socket error. %s", s.serviceID, err)
 		return err
@@ -251,7 +253,6 @@ func (s *ZmqLogger) reConnect() error {
 	}
 	uuid := uuid.New()
 	s.monitorID = uuid
-	s.zmqCtx = ctx
 	//fmt.Printf("recreate zmq ctx: %p \n", s.zmqCtx)
 	s.writer.Monitor(fmt.Sprintf("inproc://%s.rep", s.monitorID), zmq.EVENT_ALL)
 	go s.monitor()
