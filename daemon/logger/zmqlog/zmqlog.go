@@ -234,13 +234,12 @@ func (s *ZmqLogger) reConnect() error {
 	}
 	s.writer = nil
 	s.zmqCtx = nil
-
 	ctx, err := zmq.NewContext()
 	if err != nil {
 		return err
 	}
 	s.zmqCtx = ctx
-	s.writer, err = s.zmqCtx.NewSocket(zmq.PUB)
+	s.writer, err = ctx.NewSocket(zmq.PUB)
 	if err != nil {
 		logrus.Errorf("service %s Recreate zmq socket error. %s", s.serviceID, err)
 		return err
