@@ -1,6 +1,5 @@
 package zmqlog
 
-import "C"
 import (
 	"fmt"
 	"net/http"
@@ -81,12 +80,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		logAddress = zmqaddress
 	}
 	var puber *zmq.Socket
-	zmqCtx, err := zmq.NewContext()
-	if err != nil {
-		logrus.Errorf("service %s create zmq context error. %s", serviceID, err.Error())
-		return nil, err
-	}
-	puber, err = zmqCtx.NewSocket(zmq.PUB)
+	puber, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +101,6 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		monitorID:   uuid,
 		ctx:         ctx,
 		logAddress:  logAddress,
-		zmqCtx:      zmqCtx,
 	}
 	//fmt.Printf("init zmq ctx: %p \n", logger.zmqCtx)
 	go logger.monitor()
@@ -139,14 +132,11 @@ func (s *ZmqLogger) Close() error {
 	defer s.felock.Unlock()
 	s.stop = true
 	if s.writer != nil {
-		s.writer.SetLinger(0)
+		s.writer.SetLinger(10)
 		err := s.writer.Close()
 		if err != nil {
 			return err
 		}
-	}
-	if s.zmqCtx != nil {
-		s.zmqCtx.Term()
 	}
 	return nil
 }
@@ -160,20 +150,14 @@ func (s *ZmqLogger) monitor() {
 	var mo *zmq.Socket
 	var poller *zmq.Poller
 	var err error
-	if s.zmqCtx != nil {
-		//fmt.Printf("monitor zmq ctx: %p \n", s.zmqCtx)
-		mo, err = s.zmqCtx.NewSocket(zmq.PAIR)
-		if err != nil {
-			logrus.Errorf("Service %s zmq logger monitor create error. %s", s.serviceID, err.Error())
-			return
-		}
-	} else {
-		logrus.Errorf("Service %s zmq logger monitor create error. zmq ctx is nil", s.serviceID)
+	mo, err = zmq.NewSocket(zmq.PAIR)
+	if err != nil {
+		logrus.Errorf("Service %s zmq logger monitor create error. %s", s.serviceID, err.Error())
 		return
 	}
 	defer func() {
 		logrus.Info("closed monitor zmq socket.")
-		mo.Close()
+		//mo.Close()
 	}()
 	err = mo.Connect(fmt.Sprintf("inproc://%s.rep", s.monitorID))
 	if err != nil {
@@ -196,8 +180,22 @@ func (s *ZmqLogger) monitor() {
 				if event == zmq.EVENT_CLOSED {
 					retry++
 					if retry > 60 { //每秒2次，重试30s，60次
-						go s.reConnect()
+						var logAddress string
+						if zmqaddress, ok := s.ctx.Config[zmqAddress]; !ok {
+							logAddress = GetLogAddress(s.serviceID)
+						} else {
+							logAddress = zmqaddress
+						}
+						go s.reConnect(logAddress)
 						return
+						// //
+						// if logAddress == s.logAddress {
+						// 	log.Infof("Service %s zmq Logger retry get address,but not change.", s.serviceID)
+						// 	retry = 0
+						// } else {
+						// 	go s.reConnect(logAddress)
+						// 	return
+						// }
 					}
 				}
 				if event == zmq.EVENT_CONNECTED {
@@ -206,19 +204,13 @@ func (s *ZmqLogger) monitor() {
 			}
 		}
 	}
+	mo.Close()
 }
 
-func (s *ZmqLogger) reConnect() error {
+func (s *ZmqLogger) reConnect(logAddress string) error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	var logAddress string
-	if zmqaddress, ok := s.ctx.Config[zmqAddress]; !ok {
-		logAddress = GetLogAddress(s.serviceID)
-	} else {
-		logAddress = zmqaddress
-	}
 	logrus.Info("Zmq Logger start reConnect zmq server:", logAddress)
-
 	var err error
 	//必须设置，否则zmqCtx.Term()会阻塞
 	s.writer.SetLinger(0)
@@ -226,20 +218,8 @@ func (s *ZmqLogger) reConnect() error {
 	if err != nil {
 		logrus.Errorf("service %s before Recreate zmq socket close old socket error. %s", s.serviceID, err)
 	}
-	//logrus.Info("zmq socket closed")
 
-	err = s.zmqCtx.Term()
-	if err != nil {
-		logrus.Errorf("service %s before Recreate zmq socket term ctx  error. %s", s.serviceID, err)
-	}
-	s.writer = nil
-	s.zmqCtx = nil
-	ctx, err := zmq.NewContext()
-	if err != nil {
-		return err
-	}
-	s.zmqCtx = ctx
-	s.writer, err = ctx.NewSocket(zmq.PUB)
+	s.writer, err = zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		logrus.Errorf("service %s Recreate zmq socket error. %s", s.serviceID, err)
 		return err
@@ -267,10 +247,6 @@ func ValidateLogOpt(cfg map[string]string) error {
 			return fmt.Errorf("unknown log opt '%s' for %s log driver", key, name)
 		}
 	}
-	// zmqAddress不需要强制设置
-	// if cfg[zmqAddress] == "" {
-	// 	return fmt.Errorf("must specify a value for log opt '%s'", zmqAddress)
-	// }
 	return nil
 }
 
