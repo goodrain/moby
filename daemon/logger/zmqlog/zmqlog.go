@@ -44,8 +44,8 @@ func init() {
 	zmq.SetMaxSockets(5000)
 }
 
-var defaultClusterAddress = "http://region.goodrain.me:6363/docker-instance"
-var defaultAddress = "tcp://region.goodrain.me:6362"
+var defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
+var defaultAddress = "tcp://127.0.0.1:6362"
 
 //New 创建
 func New(ctx logger.Context) (logger.Logger, error) {
@@ -252,7 +252,7 @@ func ValidateLogOpt(cfg map[string]string) error {
 // GetLogAddress 动态获取日志服务端地址
 func GetLogAddress(serviceID string) string {
 	var clusterAddress []string
-	res, err := http.DefaultClient.Get("http://region.goodrain.me:8888/v1/etcd/event-log/instances")
+	res, err := http.DefaultClient.Get("http://127.0.0.1:8888/v1/etcd/event-log/instances")
 	if err != nil {
 		logrus.Errorf("Error get docker log instance from region api: %v", err)
 		clusterAddress = append(clusterAddress, defaultClusterAddress)
