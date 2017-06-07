@@ -266,22 +266,25 @@ func GetLogAddress(serviceID string) string {
 		} `json:"data"`
 		OK bool `json:"ok"`
 	}{}
-	err = json.NewDecoder(res.Body).Decode(&instances)
-	if err != nil {
-		logrus.Errorf("Error Decode instance info: %v", err)
-		clusterAddress = append(clusterAddress, defaultClusterAddress)
-	}
-	res.Body.Close()
-	if len(instances.Data.Instance) > 0 {
-		for _, ins := range instances.Data.Instance {
-			if ins.HostIP != "" && ins.WebPort != 0 {
-				clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s", ins.HostIP, ins.WebPort, serviceID))
+	if res != nil && res.Body != nil {
+		defer res.Body.Close()
+		err = json.NewDecoder(res.Body).Decode(&instances)
+		if err != nil {
+			logrus.Errorf("Error Decode instance info: %v", err)
+			clusterAddress = append(clusterAddress, defaultClusterAddress)
+		}
+		if len(instances.Data.Instance) > 0 {
+			for _, ins := range instances.Data.Instance {
+				if ins.HostIP != "" && ins.WebPort != 0 {
+					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s", ins.HostIP, ins.WebPort, serviceID))
+				}
 			}
 		}
+		if len(clusterAddress) < 1 {
+			clusterAddress = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID)
+		}
 	}
-	if len(clusterAddress) < 1 {
-		clusterAddress = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID)
-	}
+
 	return getLogAddress(clusterAddress)
 }
 
