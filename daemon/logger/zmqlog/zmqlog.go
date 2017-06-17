@@ -112,15 +112,8 @@ func New(ctx logger.Context) (logger.Logger, error) {
 func (s *ZmqLogger) Log(msg *logger.Message) error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	_, err := s.writer.Send(s.serviceID, zmq.SNDMORE)
-	if err != nil {
-		logrus.Error("Log Send error:", err.Error())
-	}
-	if msg.Source == "stderr" {
-		_, err = s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
-	} else {
-		_, err = s.writer.Send(s.containerID+": "+string(msg.Line), zmq.DONTWAIT)
-	}
+	message := fmt.Sprintf(`{"container_id":"%s","msg":"%v","time":"%v","service_id":"%s"}`, s.containerID, string(msg.Line), msg.Timestamp.Format(time.RFC3339), s.serviceID)
+	_, err := s.writer.Send(message, zmq.DONTWAIT)
 	if err != nil {
 		logrus.Error("Log Send error:", err.Error())
 	}
@@ -276,12 +269,12 @@ func GetLogAddress(serviceID string) string {
 		if len(instances.Data.Instance) > 0 {
 			for _, ins := range instances.Data.Instance {
 				if ins.HostIP != "" && ins.WebPort != 0 {
-					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s", ins.HostIP, ins.WebPort, serviceID))
+					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?&mode=zmq&service_id=%s", ins.HostIP, ins.WebPort, serviceID))
 				}
 			}
 		}
 		if len(clusterAddress) < 1 {
-			clusterAddress = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID)
+			clusterAddress = append(clusterAddress, defaultClusterAddress+"?mode=zmq&service_id="+serviceID)
 		}
 	}
 
