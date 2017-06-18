@@ -10,6 +10,7 @@ import (
 	_ "github.com/docker/docker/daemon/logger/journald"
 	_ "github.com/docker/docker/daemon/logger/jsonfilelog"
 	_ "github.com/docker/docker/daemon/logger/splunk"
+	_ "github.com/docker/docker/daemon/logger/streamlog"
 	_ "github.com/docker/docker/daemon/logger/syslog"
 	_ "github.com/docker/docker/daemon/logger/zmqlog"
 )
