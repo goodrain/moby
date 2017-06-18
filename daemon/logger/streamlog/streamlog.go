@@ -22,7 +22,7 @@ import (
 //STREAMLOGNAME 插件名称
 const name = "streamlog"
 const defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
-const defaultAddress = "tcp://127.0.0.1:6362"
+const defaultAddress = "127.0.0.1:6362"
 
 func init() {
 	if err := logger.RegisterLogDriver(name, New); err != nil {
@@ -101,6 +101,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 func getTCPConnConfig(serviceID, address string) *buffstreams.TCPConnConfig {
 	if address == "" {
 		address = GetLogAddress(serviceID)
+	}
+	if strings.HasPrefix(address, "tcp://") {
+		address = address[6:]
 	}
 	cfg := &buffstreams.TCPConnConfig{
 		MaxMessageSize: 4096,
