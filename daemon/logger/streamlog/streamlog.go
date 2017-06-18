@@ -20,13 +20,15 @@ import (
 )
 
 //STREAMLOGNAME 插件名称
-const STREAMLOGNAME = "streamlog"
+const name = "streamlog"
+const defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
+const defaultAddress = "tcp://127.0.0.1:6362"
 
 func init() {
-	if err := logger.RegisterLogDriver(STREAMLOGNAME, New); err != nil {
+	if err := logger.RegisterLogDriver(name, New); err != nil {
 		logrus.Fatal(err)
 	}
-	if err := logger.RegisterLogOptValidator(STREAMLOGNAME, ValidateLogOpt); err != nil {
+	if err := logger.RegisterLogOptValidator(name, ValidateLogOpt); err != nil {
 		logrus.Fatal(err)
 	}
 }
@@ -46,9 +48,6 @@ type StreamLog struct {
 	lock          sync.Mutex
 	config        map[string]string
 }
-
-var defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
-var defaultAddress = "tcp://127.0.0.1:6362"
 
 //New new logger
 func New(ctx logger.Context) (logger.Logger, error) {
@@ -119,7 +118,7 @@ func ValidateLogOpt(cfg map[string]string) error {
 				return errors.New("cache error log size must be a number")
 			}
 		default:
-			return fmt.Errorf("unknown log opt '%s' for %s log driver", key, STREAMLOGNAME)
+			return fmt.Errorf("unknown log opt '%s' for %s log driver", key, name)
 		}
 	}
 	return nil
@@ -228,7 +227,7 @@ func (s *StreamLog) Close() error {
 
 //Name 返回logger name
 func (s *StreamLog) Name() string {
-	return STREAMLOGNAME
+	return name
 }
 
 // GetLogAddress 动态获取日志服务端地址
