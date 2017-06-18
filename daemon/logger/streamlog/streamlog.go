@@ -145,6 +145,11 @@ func (s *StreamLog) sendCache() {
 
 //Log log
 func (s *StreamLog) Log(msg *logger.Message) error {
+	defer func() { //必须要先声明defer，否则不能捕获到panic异常
+		if err := recover(); err != nil {
+			logrus.Error("Stream log pinic.", err)
+		}
+	}()
 	if s.writer != nil {
 		msg := fmt.Sprintf(`{"container_id":"%s","msg":"%v","time":"%v","service_id":"%s"}`, s.containerID, string(msg.Line), msg.Timestamp.Format(time.RFC3339), s.serviceID)
 		if len(msg) > 4096 {
