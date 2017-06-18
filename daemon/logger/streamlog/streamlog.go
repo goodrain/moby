@@ -28,6 +28,7 @@ func init() {
 	if err := logger.RegisterLogDriver(name, New); err != nil {
 		logrus.Fatal(err)
 	}
+	logrus.Info("streamlog driver register success.")
 	if err := logger.RegisterLogOptValidator(name, ValidateLogOpt); err != nil {
 		logrus.Fatal(err)
 	}
