@@ -50,7 +50,6 @@ type StreamLog struct {
 	cacheSize     int
 	lock          sync.Mutex
 	config        map[string]string
-	buf           *bytes.Buffer
 }
 
 //New new logger
@@ -97,7 +96,6 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		cacheSize:    cacheSize,
 		config:       ctx.Config,
 		reConnecting: make(chan bool, 1),
-		buf:          bytes.NewBuffer(nil),
 	}
 	return logger, nil
 }
@@ -158,25 +156,26 @@ func (s *StreamLog) Log(msg *logger.Message) error {
 			logrus.Error("Stream log pinic.", err)
 		}
 	}()
+	buf := bytes.NewBuffer(nil)
 	if s.writer != nil {
-		s.buf.WriteString(`{"container_id":"`)
-		s.buf.WriteString(s.containerID)
-		s.buf.WriteString(`","msg":`)
-		ffjsonWriteJSONBytesAsString(s.buf, msg.Line)
-		s.buf.WriteString(`,"time":"`)
-		s.buf.WriteString(msg.Timestamp.Format(time.RFC3339))
-		s.buf.WriteString(`","service_id":"`)
-		s.buf.WriteString(s.serviceID)
-		s.buf.WriteString(`"}`)
-		stream := s.buf.Bytes()
-		defer s.buf.Reset()
+		buf.WriteString(`{"container_id":"`)
+		buf.WriteString(s.containerID[0:12])
+		buf.WriteString(`","msg":`)
+		ffjsonWriteJSONBytesAsString(buf, msg.Line)
+		buf.WriteString(`,"time":"`)
+		buf.WriteString(msg.Timestamp.Format(time.RFC3339))
+		buf.WriteString(`","service_id":"`)
+		buf.WriteString(s.serviceID)
+		buf.WriteString(`"}`)
+		stream := buf.Bytes()
+		defer buf.Reset()
 		if len(stream) > 4096 {
 			logrus.Warnf("log length too long (%s)", string(stream))
 			return nil
 		}
 		_, err := s.writer.Write(stream)
 		if err != nil {
-			logrus.Error("send log message to stream server error.", err.Error())
+			logrus.Debug("send log message to stream server error.", err.Error())
 			s.errorLog(stream)
 			if isConnectionClosed(err.Error()) && len(s.reConnecting) < 1 {
 				go s.reConect()
