@@ -16,18 +16,19 @@ import (
 )
 
 func TestStreamLog(t *testing.T) {
-	log, err := New(logger.Context{
-		ContainerID:  uuid.New(),
-		ContainerEnv: []string{"TENANT_ID=" + uuid.New(), "SERVICE_ID=" + uuid.New()},
-		Config:       map[string]string{"stream-server": "127.0.0.1:6362"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+
 	wait := sync.WaitGroup{}
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 2; i++ {
 		wait.Add(1)
 		go func() {
+			log, err := New(logger.Context{
+				ContainerID:  uuid.New(),
+				ContainerEnv: []string{"TENANT_ID=" + uuid.New(), "SERVICE_ID=" + uuid.New()},
+				Config:       map[string]string{"stream-server": "127.0.0.1:6362"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			fi, err := os.Open("./log.txt")
 			if err != nil {
 				fmt.Printf("Error: %s\n", err)
@@ -51,6 +52,7 @@ func TestStreamLog(t *testing.T) {
 		}()
 	}
 	wait.Wait()
+	time.Sleep(20 * time.Second)
 }
 
 func BenchmarkStreamLog(t *testing.B) {

@@ -48,6 +48,7 @@ type StreamLog struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	cacheSize     int
+	cacheQueue    chan []byte
 	lock          sync.Mutex
 	config        map[string]string
 }
@@ -83,7 +84,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}
 	cacheSize, err := strconv.Atoi(ctx.Config["cache-error-log-size"])
 	if err != nil {
-		cacheSize = 100
+		cacheSize = 2048
 	}
 	currentCtx, cancel := context.WithCancel(context.Background())
 	logger := &StreamLog{
@@ -96,7 +97,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		cacheSize:    cacheSize,
 		config:       ctx.Config,
 		reConnecting: make(chan bool, 1),
+		cacheQueue:   make(chan []byte),
 	}
+	go logger.send()
 	return logger, nil
 }
 
@@ -131,20 +134,44 @@ func ValidateLogOpt(cfg map[string]string) error {
 }
 
 func (s *StreamLog) errorLog(msg []byte) {
-	if len(s.errorQueue) < s.cacheSize {
+	if len(s.errorQueue) < 10 {
+		s.errorQueue = append(s.errorQueue, msg)
+	} else {
+		s.sendCache()
 		s.errorQueue = append(s.errorQueue, msg)
 	}
 }
 func (s *StreamLog) sendCache() {
 	for i := 0; i < len(s.errorQueue); i++ {
 		msg := s.errorQueue[i]
-		_, err := s.writer.Write(msg)
-		if err != nil {
-			s.errorQueue = s.errorQueue[i:]
-			if isConnectionClosed(err.Error()) && len(s.reConnecting) < 1 {
-				go s.reConect()
+		if len(s.cacheQueue) < s.cacheSize {
+			s.cacheQueue <- msg
+		}
+	}
+	s.errorQueue = s.errorQueue[:0]
+}
+
+func (s *StreamLog) send() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case msg := <-s.cacheQueue:
+			if s.writer != nil {
+				time.Sleep(1 * time.Millisecond)
+				_, err := s.writer.Write(msg)
+				if err != nil {
+					logrus.Debug("send log message to stream server error.", err.Error())
+					s.errorLog(msg)
+					if isConnectionClosed(err.Error()) && len(s.reConnecting) < 1 {
+						go s.reConect()
+					}
+				}
+			} else {
+				if len(s.reConnecting) < 1 {
+					go s.reConect()
+				}
 			}
-			break
 		}
 	}
 }
@@ -157,30 +184,25 @@ func (s *StreamLog) Log(msg *logger.Message) error {
 		}
 	}()
 	buf := bytes.NewBuffer(nil)
-	if s.writer != nil {
-		buf.WriteString(`{"container_id":"`)
-		buf.WriteString(s.containerID[0:12])
-		buf.WriteString(`","msg":`)
-		ffjsonWriteJSONBytesAsString(buf, msg.Line)
-		buf.WriteString(`,"time":"`)
-		buf.WriteString(msg.Timestamp.Format(time.RFC3339))
-		buf.WriteString(`","service_id":"`)
-		buf.WriteString(s.serviceID)
-		buf.WriteString(`"}`)
-		stream := buf.Bytes()
-		defer buf.Reset()
-		if len(stream) > 4096 {
-			logrus.Warnf("log length too long (%s)", string(stream))
-			return nil
-		}
-		_, err := s.writer.Write(stream)
-		if err != nil {
-			logrus.Debug("send log message to stream server error.", err.Error())
-			s.errorLog(stream)
-			if isConnectionClosed(err.Error()) && len(s.reConnecting) < 1 {
-				go s.reConect()
-			}
-		}
+	defer buf.Reset()
+	buf.WriteString(`{"container_id":"`)
+	buf.WriteString(s.containerID[0:12])
+	buf.WriteString(`","msg":`)
+	ffjsonWriteJSONBytesAsString(buf, msg.Line)
+	buf.WriteString(`,"time":"`)
+	buf.WriteString(msg.Timestamp.Format(time.RFC3339))
+	buf.WriteString(`","service_id":"`)
+	buf.WriteString(s.serviceID)
+	buf.WriteString(`"}`)
+	stream := buf.Bytes()
+	if len(stream) > 4096 {
+		logrus.Warnf("log length too long (%s)", string(stream))
+		return nil
+	}
+	if len(s.cacheQueue) < s.cacheSize {
+		s.cacheQueue <- stream
+	} else {
+		s.errorLog(stream)
 	}
 	return nil
 }
@@ -196,7 +218,7 @@ func (s *StreamLog) reConect() {
 		logrus.Info("start reconnect stream log server.")
 		//step1 try reconnect current address
 		if s.writer != nil {
-			err := s.writer.Reopen()
+			err := s.writer.ReConnect()
 			if err == nil {
 				go s.sendCache()
 				return
@@ -206,7 +228,7 @@ func (s *StreamLog) reConect() {
 		cfg := getTCPConnConfig(s.serviceID, s.config["stream-server"])
 		if cfg.Address == s.serverAddress {
 			logrus.Warning("stream log server address not change ,will reconnect")
-			err := s.writer.Reopen()
+			err := s.writer.ReConnect()
 			if err != nil {
 				logrus.Error("stream log server connect error." + err.Error())
 			} else {
