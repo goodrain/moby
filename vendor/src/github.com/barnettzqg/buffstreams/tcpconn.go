@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 )
 
 var (
@@ -85,7 +86,17 @@ func (c *TCPConn) open() error {
 		return err
 	}
 	c.socket = conn
+	c.socket.SetKeepAlive(true)
+	c.socket.SetKeepAlivePeriod(time.Second * 30)
 	return err
+}
+
+//ReConnect try to reconnect
+func (c *TCPConn) ReConnect() error {
+	if err := c.open(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Reopen allows you to close and re-establish a connection to the existing Address
@@ -118,9 +129,9 @@ func (c *TCPConn) Close() error {
 func (c *TCPConn) Write(data []byte) (int, error) {
 	// Calculate how big the message is, using a consistent header size.
 	// Append the size to the message, so now it has a header
-	c.outgoingDataBuffer = append(intToByteArray(int64(len(data)), c.headerByteSize), data...)
+	buffer := append(intToByteArray(int64(len(data)), c.headerByteSize), data...)
 
-	toWriteLen := len(c.outgoingDataBuffer)
+	toWriteLen := len(buffer)
 
 	// Three conditions could have occured:
 	// 1. There was an error
@@ -149,7 +160,7 @@ func (c *TCPConn) Write(data []byte) (int, error) {
 		// While we haven't read enough yet
 		// If there are remainder bytes, adjust the contents of toWrite
 		// totalBytesWritten will be the index of the nextByte waiting to be read
-		bytesWritten, writeError = c.socket.Write(c.outgoingDataBuffer[totalBytesWritten:])
+		bytesWritten, writeError = c.socket.Write(buffer[totalBytesWritten:])
 		totalBytesWritten += bytesWritten
 	}
 	if writeError != nil {
