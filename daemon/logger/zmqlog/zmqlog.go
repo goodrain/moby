@@ -5,10 +5,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"encoding/json"
 
 	"time"
+
+	"bytes"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
@@ -32,6 +35,7 @@ type ZmqLogger struct {
 	felock      sync.Mutex
 	logAddress  string
 	zmqCtx      *zmq.Context
+	buf         *bytes.Buffer
 }
 
 func init() {
@@ -102,6 +106,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		monitorID:   uuid,
 		ctx:         ctx,
 		logAddress:  logAddress,
+		buf:         bytes.NewBuffer(nil),
 	}
 	//fmt.Printf("init zmq ctx: %p \n", logger.zmqCtx)
 	go logger.monitor()
@@ -112,8 +117,18 @@ func New(ctx logger.Context) (logger.Logger, error) {
 func (s *ZmqLogger) Log(msg *logger.Message) error {
 	s.felock.Lock()
 	defer s.felock.Unlock()
-	message := fmt.Sprintf(`{"container_id":"%s","msg":"%v","time":"%v","service_id":"%s"}`, s.containerID, string(msg.Line), msg.Timestamp.Format(time.RFC3339), s.serviceID)
-	_, err := s.writer.Send(message, zmq.DONTWAIT)
+	s.buf.WriteString(`{"container_id":"`)
+	s.buf.WriteString(s.containerID)
+	s.buf.WriteString(`","msg":`)
+	ffjsonWriteJSONBytesAsString(s.buf, msg.Line)
+	s.buf.WriteString(`,"time":"`)
+	s.buf.WriteString(msg.Timestamp.Format(time.RFC3339))
+	s.buf.WriteString(`","service_id":"`)
+	s.buf.WriteString(s.serviceID)
+	s.buf.WriteString(`"}`)
+	stream := s.buf.Bytes()
+	defer s.buf.Reset()
+	_, err := s.writer.SendBytes(stream, zmq.DONTWAIT)
 	if err != nil {
 		logrus.Error("Log Send error:", err.Error())
 	}
@@ -302,4 +317,66 @@ func getLogAddress(clusterAddress []string) string {
 		}
 	}
 	return defaultAddress
+}
+func ffjsonWriteJSONBytesAsString(buf *bytes.Buffer, s []byte) {
+	const hex = "0123456789abcdef"
+
+	buf.WriteByte('"')
+	start := 0
+	for i := 0; i < len(s); {
+		if b := s[i]; b < utf8.RuneSelf {
+			if 0x20 <= b && b != '\\' && b != '"' && b != '<' && b != '>' && b != '&' {
+				i++
+				continue
+			}
+			if start < i {
+				buf.Write(s[start:i])
+			}
+			switch b {
+			case '\\', '"':
+				buf.WriteByte('\\')
+				buf.WriteByte(b)
+			case '\n':
+				buf.WriteByte('\\')
+				buf.WriteByte('n')
+			case '\r':
+				buf.WriteByte('\\')
+				buf.WriteByte('r')
+			default:
+
+				buf.WriteString(`\u00`)
+				buf.WriteByte(hex[b>>4])
+				buf.WriteByte(hex[b&0xF])
+			}
+			i++
+			start = i
+			continue
+		}
+		c, size := utf8.DecodeRune(s[i:])
+		if c == utf8.RuneError && size == 1 {
+			if start < i {
+				buf.Write(s[start:i])
+			}
+			buf.WriteString(`\ufffd`)
+			i += size
+			start = i
+			continue
+		}
+
+		if c == '\u2028' || c == '\u2029' {
+			if start < i {
+				buf.Write(s[start:i])
+			}
+			buf.WriteString(`\u202`)
+			buf.WriteByte(hex[c&0xF])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	if start < len(s) {
+		buf.Write(s[start:])
+	}
+	buf.WriteByte('"')
 }

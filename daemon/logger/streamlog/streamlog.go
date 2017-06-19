@@ -1,12 +1,14 @@
 package streamlog
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/context"
 
@@ -40,7 +42,7 @@ type StreamLog struct {
 	serviceID     string
 	tenantID      string
 	containerID   string
-	errorQueue    []string
+	errorQueue    [][]byte
 	reConnecting  chan bool
 	serverAddress string
 	ctx           context.Context
@@ -48,6 +50,7 @@ type StreamLog struct {
 	cacheSize     int
 	lock          sync.Mutex
 	config        map[string]string
+	buf           *bytes.Buffer
 }
 
 //New new logger
@@ -94,6 +97,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		cacheSize:    cacheSize,
 		config:       ctx.Config,
 		reConnecting: make(chan bool, 1),
+		buf:          bytes.NewBuffer(nil),
 	}
 	return logger, nil
 }
@@ -127,7 +131,8 @@ func ValidateLogOpt(cfg map[string]string) error {
 	}
 	return nil
 }
-func (s *StreamLog) errorLog(msg string) {
+
+func (s *StreamLog) errorLog(msg []byte) {
 	if len(s.errorQueue) < s.cacheSize {
 		s.errorQueue = append(s.errorQueue, msg)
 	}
@@ -135,7 +140,7 @@ func (s *StreamLog) errorLog(msg string) {
 func (s *StreamLog) sendCache() {
 	for i := 0; i < len(s.errorQueue); i++ {
 		msg := s.errorQueue[i]
-		_, err := s.writer.Write([]byte(msg))
+		_, err := s.writer.Write(msg)
 		if err != nil {
 			s.errorQueue = s.errorQueue[i:]
 			if isConnectionClosed(err.Error()) && len(s.reConnecting) < 1 {
@@ -154,15 +159,25 @@ func (s *StreamLog) Log(msg *logger.Message) error {
 		}
 	}()
 	if s.writer != nil {
-		msg := fmt.Sprintf(`{"container_id":"%s","msg":"%v","time":"%v","service_id":"%s"}`, s.containerID, string(msg.Line), msg.Timestamp.Format(time.RFC3339), s.serviceID)
-		if len(msg) > 4096 {
-			logrus.Warnf("log length too long (%s)", string(msg))
+		s.buf.WriteString(`{"container_id":"`)
+		s.buf.WriteString(s.containerID)
+		s.buf.WriteString(`","msg":`)
+		ffjsonWriteJSONBytesAsString(s.buf, msg.Line)
+		s.buf.WriteString(`,"time":"`)
+		s.buf.WriteString(msg.Timestamp.Format(time.RFC3339))
+		s.buf.WriteString(`","service_id":"`)
+		s.buf.WriteString(s.serviceID)
+		s.buf.WriteString(`"}`)
+		stream := s.buf.Bytes()
+		defer s.buf.Reset()
+		if len(stream) > 4096 {
+			logrus.Warnf("log length too long (%s)", string(stream))
 			return nil
 		}
-		_, err := s.writer.Write([]byte(msg))
+		_, err := s.writer.Write(stream)
 		if err != nil {
 			logrus.Error("send log message to stream server error.", err.Error())
-			s.errorLog(msg)
+			s.errorLog(stream)
 			if isConnectionClosed(err.Error()) && len(s.reConnecting) < 1 {
 				go s.reConect()
 			}
@@ -294,4 +309,67 @@ func getLogAddress(clusterAddress []string) string {
 		}
 	}
 	return defaultAddress
+}
+
+func ffjsonWriteJSONBytesAsString(buf *bytes.Buffer, s []byte) {
+	const hex = "0123456789abcdef"
+
+	buf.WriteByte('"')
+	start := 0
+	for i := 0; i < len(s); {
+		if b := s[i]; b < utf8.RuneSelf {
+			if 0x20 <= b && b != '\\' && b != '"' && b != '<' && b != '>' && b != '&' {
+				i++
+				continue
+			}
+			if start < i {
+				buf.Write(s[start:i])
+			}
+			switch b {
+			case '\\', '"':
+				buf.WriteByte('\\')
+				buf.WriteByte(b)
+			case '\n':
+				buf.WriteByte('\\')
+				buf.WriteByte('n')
+			case '\r':
+				buf.WriteByte('\\')
+				buf.WriteByte('r')
+			default:
+
+				buf.WriteString(`\u00`)
+				buf.WriteByte(hex[b>>4])
+				buf.WriteByte(hex[b&0xF])
+			}
+			i++
+			start = i
+			continue
+		}
+		c, size := utf8.DecodeRune(s[i:])
+		if c == utf8.RuneError && size == 1 {
+			if start < i {
+				buf.Write(s[start:i])
+			}
+			buf.WriteString(`\ufffd`)
+			i += size
+			start = i
+			continue
+		}
+
+		if c == '\u2028' || c == '\u2029' {
+			if start < i {
+				buf.Write(s[start:i])
+			}
+			buf.WriteString(`\u202`)
+			buf.WriteByte(hex[c&0xF])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	if start < len(s) {
+		buf.Write(s[start:])
+	}
+	buf.WriteByte('"')
 }

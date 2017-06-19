@@ -1,6 +1,9 @@
 package streamlog
 
 import (
+	"bufio"
+	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -22,16 +25,27 @@ func TestStreamLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	wait := sync.WaitGroup{}
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 5; i++ {
 		wait.Add(1)
 		go func() {
-			for j := 0; j < 1000; j++ {
+			fi, err := os.Open("./log.txt")
+			if err != nil {
+				fmt.Printf("Error: %s\n", err)
+				return
+			}
+			defer fi.Close()
+
+			br := bufio.NewReader(fi)
+			for {
+				a, _, c := br.ReadLine()
+				if c == io.EOF {
+					break
+				}
 				log.Log(&logger.Message{
-					Line:      []byte(fmt.Sprintf("hello word %d", j)),
+					Line:      []byte(a),
 					Timestamp: time.Now(),
 					Source:    "stdout",
 				})
-				time.Sleep(time.Millisecond * 100)
 			}
 			wait.Done()
 		}()
