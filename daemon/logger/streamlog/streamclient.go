@@ -39,6 +39,8 @@ func NewClient(server string) (c *Client, err error) {
 			writer: bufio.NewWriter(conn),
 			server: server,
 		}
+		c.conn.CloseRead()
+		c.conn.SetKeepAlive(true)
 	}
 	if c == nil {
 		return nil, errCreate
@@ -59,10 +61,8 @@ func (c *Client) Dial() error {
 			return errCreate
 		}
 		c.writer = bufio.NewWriter(conn)
+		atomic.StoreInt32(&c.closeFlag, 0)
 	}
-	c.conn.SetWriteBuffer(1024 * 1024 * 32)
-	c.conn.SetKeepAlive(true)
-	c.conn.SetNoDelay(true)
 	return nil
 }
 

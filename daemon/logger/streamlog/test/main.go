@@ -18,7 +18,7 @@ import (
 
 func main() {
 	var logs []logger.Logger
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 10; i++ {
 		log, err := streamlog.New(logger.Context{
 			ContainerID:  uuid.New(),
 			ContainerEnv: []string{"TENANT_ID=" + uuid.New(), "SERVICE_ID=" + uuid.New()},
@@ -63,5 +63,6 @@ func work(log logger.Logger) {
 		if err != nil {
 			return
 		}
+		time.Sleep(time.Second)
 	}
 }

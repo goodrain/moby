@@ -172,7 +172,7 @@ func (s *StreamLog) send() {
 					s.size++
 				}
 			} else {
-				logrus.Error("the writer is nil.try reconect")
+				logrus.Error("the writer is closed.try reconect")
 				if len(s.reConnecting) < 1 {
 					s.reConect()
 				}
