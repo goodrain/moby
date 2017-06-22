@@ -48,10 +48,28 @@ func stop(w http.ResponseWriter, r *http.Request) {
 	logrus.Info("close a log")
 }
 
+var message = `
+time="2017-05-26T22:22:33+08:00" level=info msg="ServiceID:bf6acf27af857e14049ee2cfe2a1707c" module=SocketServer
+time="2017-05-26T22:23:01+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:23:11+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:23:21+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:23:31+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:23:41+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:23:51+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:24:01+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:24:11+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:24:21+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:24:31+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:24:41+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:24:51+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:25:01+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+time="2017-05-26T22:25:11+08:00" level=error msg="Store manager docker message chan cache size to achieve perfection" module=MessageStore
+`
+
 func send(log logger.Logger, stop chan struct{}) {
 	for {
 		err := log.Log(&logger.Message{
-			Line:      []byte("hello word"),
+			Line:      []byte(message),
 			Timestamp: time.Now(),
 			Source:    "stdout",
 		})
@@ -61,7 +79,7 @@ func send(log logger.Logger, stop chan struct{}) {
 		select {
 		case <-stop:
 			return
-		case <-time.Tick(time.Second):
+		case <-time.Tick(time.Millisecond * 5):
 		}
 	}
 }

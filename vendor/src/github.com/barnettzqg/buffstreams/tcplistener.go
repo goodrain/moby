@@ -1,6 +1,8 @@
 package buffstreams
 
 import (
+	"bufio"
+	"bytes"
 	"log"
 	"net"
 	"sync"
@@ -82,6 +84,7 @@ func (t *TCPListener) blockListen() error {
 		}
 		// Don't dial out, wrap the underlying conn in one of ours
 		conn.socket = c
+		conn.br = bufio.NewReader(c)
 		if err != nil {
 			if t.enableLogging {
 				log.Printf("Error attempting to accept connection: %s", err)
@@ -150,7 +153,7 @@ func (t *TCPListener) readLoop(conn *TCPConn) {
 	t.shutdownGroup.Add(1)
 	defer t.shutdownGroup.Done()
 	// dataBuffer will hold the message from each read
-	dataBuffer := make([]byte, conn.maxMessageSize)
+	dataBuffer := bytes.NewBuffer(nil)
 
 	// Start an asyncrhonous call that will wait on the shutdown channel, and then close
 	// the connection. This will let us respond to the shutdown but also not incur
@@ -166,7 +169,7 @@ func (t *TCPListener) readLoop(conn *TCPConn) {
 	// we want to kill the connection, exit the goroutine, and let the client handle re-connecting if need be.
 	// Handle getting the data header
 	for {
-		msgLen, err := conn.Read(dataBuffer)
+		data, err := conn.ReadLine()
 		if err != nil {
 			if t.enableLogging {
 				log.Printf("Address %s: Failure to read from connection. Underlying error: %s", conn.address, err)
@@ -174,16 +177,17 @@ func (t *TCPListener) readLoop(conn *TCPConn) {
 			conn.Close()
 			return
 		}
-		if msgLen == 0 {
+		if len(data) == 0 {
 			continue
 		}
 		// We take action on the actual message data - but only up to the amount of bytes read,
 		// since we re-use the cache
-		if err = t.callback(dataBuffer[:msgLen]); err != nil && t.enableLogging {
+		if err = t.callback(data); err != nil && t.enableLogging {
 			log.Printf("Error in Callback: %s", err.Error())
 			// TODO if it's a protobuffs error, it means we likely had an issue and can't
 			// deserialize data? Should we kill the connection and have the client start over?
 			// At this point, there isn't a reliable recovery mechanic for the server
 		}
+		dataBuffer.Reset()
 	}
 }

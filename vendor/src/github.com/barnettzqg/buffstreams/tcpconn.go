@@ -1,6 +1,8 @@
 package buffstreams
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"io"
 	"net"
@@ -21,6 +23,7 @@ var (
 type TCPConn struct {
 	// General
 	socket         *net.TCPConn
+	br             *bufio.Reader
 	address        string
 	headerByteSize int
 	maxMessageSize int
@@ -129,10 +132,9 @@ func (c *TCPConn) Close() error {
 func (c *TCPConn) Write(data []byte) (int, error) {
 	// Calculate how big the message is, using a consistent header size.
 	// Append the size to the message, so now it has a header
-	buffer := append(intToByteArray(int64(len(data)), c.headerByteSize), data...)
-
+	//buffer := append(intToByteArray(int64(len(data)), c.headerByteSize), data...)
+	buffer := append(data, []byte("\n")...)
 	toWriteLen := len(buffer)
-
 	// Three conditions could have occured:
 	// 1. There was an error
 	// 2. Not all bytes were written
@@ -200,14 +202,15 @@ func (c *TCPConn) lowLevelRead(buffer []byte) (int, error) {
 	return totalBytesRead, nil
 }
 
-func (c *TCPConn) Read(b []byte) (int, error) {
+func (c *TCPConn) Read(bufer *bytes.Buffer) (int, error) {
 	// Read the header
-	hLength, err := c.lowLevelRead(c.incomingHeaderBuffer)
+	header := make([]byte, c.headerByteSize)
+	hLength, err := c.lowLevelRead(header)
 	if err != nil {
 		return hLength, err
 	}
 	// Decode it
-	msgLength, bytesParsed := byteArrayToUInt32(c.incomingHeaderBuffer)
+	msgLength, bytesParsed := byteArrayToUInt32(header)
 	if bytesParsed == 0 {
 		// "Buffer too small"
 		c.Close()
@@ -219,10 +222,16 @@ func (c *TCPConn) Read(b []byte) (int, error) {
 	}
 	var bLength int
 	// Using the header, read the remaining bodys
-	bLength, err = c.lowLevelRead(b[:msgLength])
+	var b = make([]byte, msgLength)
+	bLength, err = c.lowLevelRead(b)
 	if err != nil {
 		c.Close()
 	}
-
+	bufer.Write(b)
 	return bLength, err
+}
+
+func (c *TCPConn) ReadLine() ([]byte, error) {
+	line, _, err := c.br.ReadLine()
+	return line, err
 }

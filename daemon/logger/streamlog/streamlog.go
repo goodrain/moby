@@ -17,7 +17,6 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/barnettzqg/buffstreams"
 	"github.com/docker/docker/daemon/logger"
 )
 
@@ -38,7 +37,7 @@ func init() {
 
 //StreamLog 消息流log
 type StreamLog struct {
-	writer        *buffstreams.TCPConn
+	writer        *Client
 	serviceID     string
 	tenantID      string
 	containerID   string
@@ -48,9 +47,10 @@ type StreamLog struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	cacheSize     int
-	cacheQueue    chan []byte
+	cacheQueue    chan string
 	lock          sync.Mutex
 	config        map[string]string
+	size          int
 }
 
 //New new logger
@@ -77,44 +77,49 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	if serviceID == "" {
 		serviceID = "default"
 	}
-	cfg := getTCPConnConfig(serviceID, ctx.Config["stream-server"])
-	writer, err := buffstreams.DialTCP(cfg)
+	address := getTCPConnConfig(serviceID, ctx.Config["stream-server"])
+	writer, err := NewClient(address)
 	if err != nil {
 		return nil, err
 	}
-	cacheSize, err := strconv.Atoi(ctx.Config["cache-error-log-size"])
+
+	cacheSize, err := strconv.Atoi(ctx.Config["cache-log-size"])
 	if err != nil {
-		cacheSize = 2048
+		cacheSize = 1024
 	}
 	currentCtx, cancel := context.WithCancel(context.Background())
 	logger := &StreamLog{
-		writer:       writer,
-		serviceID:    serviceID,
-		tenantID:     tenantID,
-		containerID:  ctx.ContainerID,
-		ctx:          currentCtx,
-		cancel:       cancel,
-		cacheSize:    cacheSize,
-		config:       ctx.Config,
-		reConnecting: make(chan bool, 1),
-		cacheQueue:   make(chan []byte),
+		writer:        writer,
+		serviceID:     serviceID,
+		tenantID:      tenantID,
+		containerID:   ctx.ContainerID,
+		ctx:           currentCtx,
+		cancel:        cancel,
+		cacheSize:     cacheSize,
+		config:        ctx.Config,
+		serverAddress: address,
+		reConnecting:  make(chan bool, 1),
+		cacheQueue:    make(chan string, 5000),
+	}
+	err = writer.Dial()
+	if err != nil {
+		logrus.Error("connect log server error.log can not be sended.")
+		go logger.reConect()
+	} else {
+		logrus.Info("stream log server is connected")
 	}
 	go logger.send()
 	return logger, nil
 }
 
-func getTCPConnConfig(serviceID, address string) *buffstreams.TCPConnConfig {
+func getTCPConnConfig(serviceID, address string) string {
 	if address == "" {
 		address = GetLogAddress(serviceID)
 	}
 	if strings.HasPrefix(address, "tcp://") {
 		address = address[6:]
 	}
-	cfg := &buffstreams.TCPConnConfig{
-		MaxMessageSize: 4096,
-		Address:        address,
-	}
-	return cfg
+	return address
 }
 
 //ValidateLogOpt 验证参数
@@ -133,43 +138,43 @@ func ValidateLogOpt(cfg map[string]string) error {
 	return nil
 }
 
-func (s *StreamLog) errorLog(msg []byte) {
-	if len(s.errorQueue) < 10 {
-		s.errorQueue = append(s.errorQueue, msg)
-	} else {
-		s.sendCache()
-		s.errorQueue = append(s.errorQueue, msg)
+func (s *StreamLog) cache(msg string) {
+	defer func() {
+		recover()
+	}()
+	select {
+	case s.cacheQueue <- msg:
+	default:
+		return
 	}
-}
-func (s *StreamLog) sendCache() {
-	for i := 0; i < len(s.errorQueue); i++ {
-		msg := s.errorQueue[i]
-		if len(s.cacheQueue) < s.cacheSize {
-			s.cacheQueue <- msg
-		}
-	}
-	s.errorQueue = s.errorQueue[:0]
 }
 
 func (s *StreamLog) send() {
+	logrus.Info("Start to send")
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		case msg := <-s.cacheQueue:
-			if s.writer != nil {
-				time.Sleep(1 * time.Millisecond)
-				_, err := s.writer.Write(msg)
+			if msg == "" {
+				continue
+			}
+			time.Sleep(time.Microsecond * 50)
+			if !s.writer.IsClosed() {
+				err := s.writer.Write(msg)
 				if err != nil {
-					logrus.Debug("send log message to stream server error.", err.Error())
-					s.errorLog(msg)
-					if isConnectionClosed(err.Error()) && len(s.reConnecting) < 1 {
-						go s.reConect()
+					logrus.Error("send log message to stream server error.", err.Error())
+					s.cache(msg)
+					if isConnectionClosed(err) && len(s.reConnecting) < 1 {
+						s.reConect()
 					}
+				} else {
+					s.size++
 				}
 			} else {
+				logrus.Error("the writer is nil.try reconect")
 				if len(s.reConnecting) < 1 {
-					go s.reConect()
+					s.reConect()
 				}
 			}
 		}
@@ -184,31 +189,23 @@ func (s *StreamLog) Log(msg *logger.Message) error {
 		}
 	}()
 	buf := bytes.NewBuffer(nil)
-	defer buf.Reset()
-	buf.WriteString(`{"container_id":"`)
-	buf.WriteString(s.containerID[0:12])
-	buf.WriteString(`","msg":`)
-	ffjsonWriteJSONBytesAsString(buf, msg.Line)
-	buf.WriteString(`,"time":"`)
-	buf.WriteString(msg.Timestamp.Format(time.RFC3339))
-	buf.WriteString(`","service_id":"`)
+	buf.WriteString(s.containerID[0:12] + ",")
 	buf.WriteString(s.serviceID)
-	buf.WriteString(`"}`)
-	stream := buf.Bytes()
-	if len(stream) > 4096 {
-		logrus.Warnf("log length too long (%s)", string(stream))
-		return nil
-	}
-	if len(s.cacheQueue) < s.cacheSize {
-		s.cacheQueue <- stream
-	} else {
-		s.errorLog(stream)
-	}
+	buf.WriteString(string(msg.Line))
+	s.cache(buf.String())
 	return nil
 }
 
-func isConnectionClosed(err string) bool {
-	return strings.HasSuffix(err, "connection refused") || strings.HasSuffix(err, "use of closed network connection")
+func isConnectionClosed(err error) bool {
+	if err == errClosed || err == errNoConnect {
+		return true
+	}
+	errMsg := err.Error()
+	ok := strings.HasSuffix(errMsg, "connection refused") || strings.HasSuffix(errMsg, "use of closed network connection")
+	if !ok {
+		return strings.HasSuffix(errMsg, "broken pipe")
+	}
+	return ok
 }
 
 func (s *StreamLog) reConect() {
@@ -220,34 +217,30 @@ func (s *StreamLog) reConect() {
 		if s.writer != nil {
 			err := s.writer.ReConnect()
 			if err == nil {
-				go s.sendCache()
 				return
 			}
 		}
 		//step2 get new server address and reconnect
-		cfg := getTCPConnConfig(s.serviceID, s.config["stream-server"])
-		if cfg.Address == s.serverAddress {
+		server := getTCPConnConfig(s.serviceID, s.config["stream-server"])
+		if server == s.serverAddress {
 			logrus.Warning("stream log server address not change ,will reconnect")
 			err := s.writer.ReConnect()
 			if err != nil {
 				logrus.Error("stream log server connect error." + err.Error())
 			} else {
-				go s.sendCache()
 				return
 			}
 		} else {
-			writer, err := buffstreams.DialTCP(cfg)
+			err := s.writer.ChangeAddress(server)
 			if err != nil {
-				logrus.Errorf("stream log server connect %s error. %v", cfg.Address, err.Error())
+				logrus.Errorf("stream log server connect %s error. %v", server, err.Error())
 			} else {
-				s.writer = writer
-				go s.sendCache()
 				return
 			}
 		}
 
 		select {
-		case <-time.Tick(time.Second * 2):
+		case <-time.Tick(time.Second * 5):
 		case <-s.ctx.Done():
 			return
 		}
@@ -257,11 +250,9 @@ func (s *StreamLog) reConect() {
 //Close 关闭
 func (s *StreamLog) Close() error {
 	s.cancel()
-	if len(s.errorQueue) > 0 {
-		s.sendCache()
-	}
 	s.writer.Close()
-	s.writer = nil
+	close(s.cacheQueue)
+	fmt.Printf("send :%d \n", s.size)
 	return nil
 }
 

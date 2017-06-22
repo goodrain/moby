@@ -39,7 +39,7 @@ func TestZMQLogNew(b *testing.T) {
 		log, err := New(logger.Context{
 			ContainerID:  uuid.New(),
 			ContainerEnv: []string{"TENANT_ID=" + uuid.New(), "SERVICE_ID=" + uuid.New()},
-			Config:       map[string]string{"zmq-address": "tcp://127.0.0.1:6362"},
+			Config:       map[string]string{"zmq-address": "tcp://region.goodrain.me:6362"},
 		})
 		if err != nil {
 			b.Fatal(err)
