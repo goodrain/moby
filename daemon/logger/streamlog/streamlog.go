@@ -203,7 +203,7 @@ func isConnectionClosed(err error) bool {
 	errMsg := err.Error()
 	ok := strings.HasSuffix(errMsg, "connection refused") || strings.HasSuffix(errMsg, "use of closed network connection")
 	if !ok {
-		return strings.HasSuffix(errMsg, "broken pipe")
+		return strings.HasSuffix(errMsg, "broken pipe") || strings.HasSuffix(errMsg, "connection reset by peer")
 	}
 	return ok
 }
