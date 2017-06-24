@@ -200,6 +200,9 @@ func isConnectionClosed(err error) bool {
 	if err == errClosed || err == errNoConnect {
 		return true
 	}
+	if strings.HasSuffix(err.Error(), "i/o timeout") {
+		return true
+	}
 	errMsg := err.Error()
 	ok := strings.HasSuffix(errMsg, "connection refused") || strings.HasSuffix(errMsg, "use of closed network connection")
 	if !ok {
