@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -37,20 +38,21 @@ func init() {
 
 //StreamLog 消息流log
 type StreamLog struct {
-	writer        *Client
-	serviceID     string
-	tenantID      string
-	containerID   string
-	errorQueue    [][]byte
-	reConnecting  chan bool
-	serverAddress string
-	ctx           context.Context
-	cancel        context.CancelFunc
-	cacheSize     int
-	cacheQueue    chan string
-	lock          sync.Mutex
-	config        map[string]string
-	size          int
+	writer                         *Client
+	serviceID                      string
+	tenantID                       string
+	containerID                    string
+	errorQueue                     [][]byte
+	reConnecting                   chan bool
+	serverAddress                  string
+	ctx                            context.Context
+	cancel                         context.CancelFunc
+	cacheSize                      int
+	cacheQueue                     chan string
+	lock                           sync.Mutex
+	config                         map[string]string
+	intervalSendMicrosecondTime    int64
+	minIntervalSendMicrosecondTime int64
 }
 
 //New new logger
@@ -89,17 +91,19 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	}
 	currentCtx, cancel := context.WithCancel(context.Background())
 	logger := &StreamLog{
-		writer:        writer,
-		serviceID:     serviceID,
-		tenantID:      tenantID,
-		containerID:   ctx.ContainerID,
-		ctx:           currentCtx,
-		cancel:        cancel,
-		cacheSize:     cacheSize,
-		config:        ctx.Config,
-		serverAddress: address,
-		reConnecting:  make(chan bool, 1),
-		cacheQueue:    make(chan string, 5000),
+		writer:                         writer,
+		serviceID:                      serviceID,
+		tenantID:                       tenantID,
+		containerID:                    ctx.ContainerID,
+		ctx:                            currentCtx,
+		cancel:                         cancel,
+		cacheSize:                      cacheSize,
+		config:                         ctx.Config,
+		serverAddress:                  address,
+		reConnecting:                   make(chan bool, 1),
+		cacheQueue:                     make(chan string, 5000),
+		intervalSendMicrosecondTime:    500,
+		minIntervalSendMicrosecondTime: 50,
 	}
 	err = writer.Dial()
 	if err != nil {
@@ -150,7 +154,6 @@ func (s *StreamLog) cache(msg string) {
 }
 
 func (s *StreamLog) send() {
-	logrus.Info("Start to send")
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -159,17 +162,22 @@ func (s *StreamLog) send() {
 			if msg == "" {
 				continue
 			}
-			time.Sleep(time.Microsecond * 50)
 			if !s.writer.IsClosed() {
 				err := s.writer.Write(msg)
 				if err != nil {
 					logrus.Error("send log message to stream server error.", err.Error())
 					s.cache(msg)
-					if isConnectionClosed(err) && len(s.reConnecting) < 1 {
+					neterr, ok := err.(net.Error)
+					if ok && neterr.Timeout() {
+					}
+					if len(s.reConnecting) < 1 {
 						s.reConect()
 					}
 				} else {
-					s.size++
+					//如果发送正确无错误。加快发送速度
+					if s.intervalSendMicrosecondTime > s.minIntervalSendMicrosecondTime {
+						s.intervalSendMicrosecondTime -= 10
+					}
 				}
 			} else {
 				logrus.Error("the writer is closed.try reconect")
@@ -177,6 +185,7 @@ func (s *StreamLog) send() {
 					s.reConect()
 				}
 			}
+			time.Sleep(time.Microsecond * time.Duration(s.intervalSendMicrosecondTime))
 		}
 	}
 }
@@ -213,7 +222,10 @@ func isConnectionClosed(err error) bool {
 
 func (s *StreamLog) reConect() {
 	s.reConnecting <- true
-	defer func() { <-s.reConnecting }()
+	defer func() {
+		<-s.reConnecting
+		s.intervalSendMicrosecondTime = 500
+	}()
 	for {
 		logrus.Info("start reconnect stream log server.")
 		//step1 try reconnect current address
@@ -255,7 +267,6 @@ func (s *StreamLog) Close() error {
 	s.cancel()
 	s.writer.Close()
 	close(s.cacheQueue)
-	fmt.Printf("send :%d \n", s.size)
 	return nil
 }
 
