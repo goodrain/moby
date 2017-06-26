@@ -101,9 +101,9 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		config:                         ctx.Config,
 		serverAddress:                  address,
 		reConnecting:                   make(chan bool, 1),
-		cacheQueue:                     make(chan string, 5000),
-		intervalSendMicrosecondTime:    500,
-		minIntervalSendMicrosecondTime: 50,
+		cacheQueue:                     make(chan string, 2000),
+		intervalSendMicrosecondTime:    1000 * 10,
+		minIntervalSendMicrosecondTime: 1000,
 	}
 	err = writer.Dial()
 	if err != nil {
@@ -157,6 +157,7 @@ func (s *StreamLog) send() {
 	for {
 		select {
 		case <-s.ctx.Done():
+
 			return
 		case msg := <-s.cacheQueue:
 			if msg == "" {
@@ -176,7 +177,7 @@ func (s *StreamLog) send() {
 				} else {
 					//如果发送正确无错误。加快发送速度
 					if s.intervalSendMicrosecondTime > s.minIntervalSendMicrosecondTime {
-						s.intervalSendMicrosecondTime -= 10
+						s.intervalSendMicrosecondTime -= 100
 					}
 				}
 			} else {
@@ -224,7 +225,7 @@ func (s *StreamLog) reConect() {
 	s.reConnecting <- true
 	defer func() {
 		<-s.reConnecting
-		s.intervalSendMicrosecondTime = 500
+		s.intervalSendMicrosecondTime = 1000 * 10
 	}()
 	for {
 		logrus.Info("start reconnect stream log server.")
