@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -31,6 +32,7 @@ func NewClient(server string) (c *Client, err error) {
 		c = &Client{
 			server: server,
 		}
+		atomic.StoreInt32(&c.closeFlag, 1)
 	}
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		c = &Client{
@@ -61,7 +63,7 @@ func (c *Client) Dial() error {
 			return errCreate
 		}
 		c.writer = bufio.NewWriter(conn)
-		c.closeFlag = 0
+		atomic.StoreInt32(&c.closeFlag, 0)
 	}
 	return nil
 }
@@ -85,7 +87,7 @@ func (c *Client) ReConnect() error {
 
 //Close close
 func (c *Client) Close() {
-	c.closeFlag = 1
+	atomic.StoreInt32(&c.closeFlag, 1)
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
@@ -95,7 +97,7 @@ func (c *Client) Close() {
 
 //IsClosed close
 func (c *Client) IsClosed() bool {
-	return c.closeFlag == 1
+	return atomic.LoadInt32(&c.closeFlag) == 1
 }
 
 //write if get a error. will close the conn.
