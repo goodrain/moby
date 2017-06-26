@@ -53,6 +53,7 @@ type StreamLog struct {
 	config                         map[string]string
 	intervalSendMicrosecondTime    int64
 	minIntervalSendMicrosecondTime int64
+	closedChan                     chan struct{}
 }
 
 //New new logger
@@ -104,6 +105,7 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		cacheQueue:                     make(chan string, 2000),
 		intervalSendMicrosecondTime:    1000 * 10,
 		minIntervalSendMicrosecondTime: 1000,
+		closedChan:                     make(chan struct{}),
 	}
 	err = writer.Dial()
 	if err != nil {
@@ -157,7 +159,7 @@ func (s *StreamLog) send() {
 	for {
 		select {
 		case <-s.ctx.Done():
-
+			close(s.closedChan)
 			return
 		case msg := <-s.cacheQueue:
 			if msg == "" {
@@ -266,6 +268,7 @@ func (s *StreamLog) reConect() {
 //Close 关闭
 func (s *StreamLog) Close() error {
 	s.cancel()
+	<-s.closedChan
 	s.writer.Close()
 	close(s.cacheQueue)
 	return nil

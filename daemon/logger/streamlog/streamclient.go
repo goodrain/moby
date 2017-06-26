@@ -71,10 +71,7 @@ func (c *Client) Dial() error {
 //ChangeAddress 更换服务地址
 func (c *Client) ChangeAddress(server string) error {
 	c.server = server
-	if !c.IsClosed() {
-		c.Close()
-	}
-	return c.Dial()
+	return c.ReConnect()
 }
 
 //ReConnect 重连
@@ -87,12 +84,12 @@ func (c *Client) ReConnect() error {
 
 //Close close
 func (c *Client) Close() {
-	atomic.StoreInt32(&c.closeFlag, 1)
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
 	}
 	c.writer = nil
+	atomic.StoreInt32(&c.closeFlag, 1)
 }
 
 //IsClosed close
