@@ -254,8 +254,8 @@ func (s *StreamLog) reConect() {
 		}
 		//step2 get new server address and reconnect
 		server := getTCPConnConfig(s.serviceID, s.config["stream-server"])
-		if server == s.serverAddress {
-			logrus.Warning("stream log server address not change ,will reconnect")
+		if server == s.writer.server {
+			logrus.Warningf("stream log server address(%s) not change ,will reconnect", server)
 			err := s.writer.ReConnect()
 			if err != nil {
 				logrus.Error("stream log server connect error." + err.Error())
@@ -267,6 +267,7 @@ func (s *StreamLog) reConect() {
 			if err != nil {
 				logrus.Errorf("stream log server connect %s error. %v", server, err.Error())
 			} else {
+				s.serverAddress = server
 				return
 			}
 		}
@@ -351,7 +352,9 @@ func getLogAddress(clusterAddress []string) string {
 		if status, ok := host["status"]; ok && status == "success" {
 			return host["host"]
 		}
+		logrus.Warningf("Error get host info from %s. result is not success", address)
 	}
+	logrus.Warning("no cluster is running. return default address")
 	return defaultAddress
 }
 
