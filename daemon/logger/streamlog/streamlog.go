@@ -156,41 +156,55 @@ func (s *StreamLog) cache(msg string) {
 }
 
 func (s *StreamLog) send() {
+	tike := time.NewTimer(time.Second * 3)
 	for {
 		select {
 		case <-s.ctx.Done():
 			close(s.closedChan)
 			return
 		case msg := <-s.cacheQueue:
-			if msg == "" {
+			if msg == "" || msg == "\n" {
 				continue
 			}
-			if !s.writer.IsClosed() {
-				err := s.writer.Write(msg)
-				if err != nil {
-					logrus.Error("send log message to stream server error.", err.Error())
-					s.cache(msg)
-					neterr, ok := err.(net.Error)
-					if ok && neterr.Timeout() {
-					}
-					if len(s.reConnecting) < 1 {
-						s.reConect()
-					}
-				} else {
-					//如果发送正确无错误。加快发送速度
-					if s.intervalSendMicrosecondTime > s.minIntervalSendMicrosecondTime {
-						s.intervalSendMicrosecondTime -= 100
-					}
-				}
-			} else {
-				logrus.Error("the writer is closed.try reconect")
-				if len(s.reConnecting) < 1 {
-					s.reConect()
-				}
-			}
-			time.Sleep(time.Microsecond * time.Duration(s.intervalSendMicrosecondTime))
+			s.sendMsg(msg)
+			tike.Reset(time.Second * 3)
+		case <-tike.C:
+			//每3秒发送健康消息
+			s.ping()
+			tike.Reset(time.Second * 3)
 		}
 	}
+}
+func (s *StreamLog) sendMsg(msg string) {
+	if !s.writer.IsClosed() {
+		err := s.writer.Write(msg)
+		if err != nil {
+			logrus.Error("send log message to stream server error.", err.Error())
+			s.cache(msg)
+			neterr, ok := err.(net.Error)
+			if ok && neterr.Timeout() {
+			}
+			if len(s.reConnecting) < 1 {
+				s.reConect()
+			}
+		} else {
+			//如果发送正确无错误。加快发送速度
+			if s.intervalSendMicrosecondTime > s.minIntervalSendMicrosecondTime {
+				s.intervalSendMicrosecondTime -= 100
+			}
+		}
+	} else {
+		logrus.Error("the writer is closed.try reconect")
+		if len(s.reConnecting) < 1 {
+			s.reConect()
+		}
+	}
+	time.Sleep(time.Microsecond * time.Duration(s.intervalSendMicrosecondTime))
+}
+
+func (s *StreamLog) ping() {
+	pingMsg := "0x00ping"
+	s.sendMsg(pingMsg)
 }
 
 //Log log
