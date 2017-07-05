@@ -22,7 +22,7 @@ import (
 )
 
 //STREAMLOGNAME 插件名称
-const name = "streamlog"
+const name = "zmqlog"
 const defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
 const defaultAddress = "127.0.0.1:6362"
 

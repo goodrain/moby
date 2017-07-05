@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	name       = "zmqlog"
+	name       = "zmqlog-old"
 	zmqAddress = "zmq-address"
 )
 
