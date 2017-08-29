@@ -22,7 +22,7 @@ import (
 )
 
 //STREAMLOGNAME 插件名称
-const name = "zmqlog"
+const name = "streamlog"
 const defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
 const defaultAddress = "127.0.0.1:6362"
 
@@ -157,6 +157,7 @@ func (s *StreamLog) cache(msg string) {
 
 func (s *StreamLog) send() {
 	tike := time.NewTimer(time.Second * 3)
+	defer tike.Stop()
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -167,11 +168,10 @@ func (s *StreamLog) send() {
 				continue
 			}
 			s.sendMsg(msg)
-			tike.Reset(time.Second * 3)
+			break
 		case <-tike.C:
 			//每3秒发送健康消息
 			s.ping()
-			tike.Reset(time.Second * 3)
 		}
 	}
 }
