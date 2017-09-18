@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"strings"
@@ -19,12 +20,15 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
+	"github.com/tidwall/gjson"
 )
 
 //STREAMLOGNAME 插件名称
 const name = "streamlog"
 const defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
 const defaultAddress = "127.0.0.1:6362"
+
+var etcdV2Endpoints = []string{"http://127.0.0.1:4001"}
 
 func init() {
 	if err := logger.RegisterLogDriver(name, New); err != nil {
@@ -297,37 +301,34 @@ func (s *StreamLog) Name() string {
 // GetLogAddress 动态获取日志服务端地址
 func GetLogAddress(serviceID string) string {
 	var clusterAddress []string
-	res, err := http.DefaultClient.Get("http://127.0.0.1:8888/v1/etcd/event-log/instances")
+	res, err := http.DefaultClient.Get(fmt.Sprintf("%s/v2/keys/event/instance", etcdV2Endpoints[0]))
 	if err != nil {
-		logrus.Errorf("Error get docker log instance from region api: %v", err)
-		clusterAddress = append(clusterAddress, defaultClusterAddress)
+		logrus.Errorf("Error get docker log instance from etcd: %v", err)
+		return defaultAddress
 	}
-	var instances = struct {
-		Data struct {
-			Instance []struct {
-				HostIP  string
-				WebPort int
-			} `json:"instance"`
-		} `json:"data"`
-		OK bool `json:"ok"`
-	}{}
 	if res != nil && res.Body != nil {
 		defer res.Body.Close()
-		err = json.NewDecoder(res.Body).Decode(&instances)
-		if err != nil {
-			logrus.Errorf("Error Decode instance info: %v", err)
-			clusterAddress = append(clusterAddress, defaultClusterAddress)
-		}
-		if len(instances.Data.Instance) > 0 {
-			for _, ins := range instances.Data.Instance {
-				if ins.HostIP != "" && ins.WebPort != 0 {
-					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s&mode=stream", ins.HostIP, ins.WebPort, serviceID))
+	}
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		logrus.Error("read get instance body data error. ", err.Error())
+		return defaultAddress
+	}
+	nodes := gjson.GetBytes(body, "node.nodes").Array()
+	if nodes != nil {
+		for _, node := range nodes {
+			if value, ok := node.Map()["value"]; ok {
+				hostIP := gjson.Get(value.String(), "HostIP").String()
+				webPort := gjson.Get(value.String(), "WebPort").Int()
+				if hostIP != "" && webPort != 0 {
+					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s&mode=stream", hostIP, webPort, serviceID))
 				}
 			}
 		}
-		if len(clusterAddress) < 1 {
-			clusterAddress = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID+"&mode=stream")
-		}
+	}
+
+	if len(clusterAddress) < 1 {
+		clusterAddress = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID+"&mode=stream")
 	}
 
 	return getLogAddress(clusterAddress)

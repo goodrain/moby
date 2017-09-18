@@ -17,12 +17,17 @@ import (
 )
 
 func main() {
+	address := "127.0.0.1:6362"
+	if len(os.Args) > 1 {
+		address = os.Args[1]
+	}
+
 	var logs []logger.Logger
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		log, err := streamlog.New(logger.Context{
 			ContainerID:  uuid.New(),
 			ContainerEnv: []string{"TENANT_ID=" + uuid.New(), "SERVICE_ID=" + uuid.New()},
-			Config:       map[string]string{"stream-server": "127.0.0.1:6362"},
+			Config:       map[string]string{"stream-server": address},
 		})
 		if err != nil {
 			logrus.Error(err)
@@ -43,26 +48,28 @@ func main() {
 }
 
 func work(log logger.Logger) {
-	fi, err := os.Open("./log.txt")
-	if err != nil {
-		fmt.Printf("Error: %s\n", err)
-		return
-	}
-	defer fi.Close()
-	br := bufio.NewReader(fi)
-	for {
-		a, _, c := br.ReadLine()
-		if c == io.EOF {
-			break
-		}
-		err := log.Log(&logger.Message{
-			Line:      a,
-			Timestamp: time.Now(),
-			Source:    "stdout",
-		})
+	for i := 0; i < 1; i++ {
+		fi, err := os.Open("./log.txt")
 		if err != nil {
+			fmt.Printf("Error: %s\n", err)
 			return
 		}
-		time.Sleep(time.Second)
+		defer fi.Close()
+		br := bufio.NewReader(fi)
+		for {
+			a, _, c := br.ReadLine()
+			if c == io.EOF {
+				break
+			}
+			err := log.Log(&logger.Message{
+				Line:      a,
+				Timestamp: time.Now(),
+				Source:    "stdout",
+			})
+			if err != nil {
+				return
+			}
+		}
 	}
+
 }
