@@ -1,11 +1,12 @@
 package streamlog
 
 import (
+	"acp_core/pkg/discover"
+	"acp_core/pkg/discover/config"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"strings"
@@ -20,7 +21,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/logger"
-	"github.com/tidwall/gjson"
 )
 
 //STREAMLOGNAME 插件名称
@@ -29,6 +29,39 @@ const defaultClusterAddress = "http://127.0.0.1:6363/docker-instance"
 const defaultAddress = "127.0.0.1:6362"
 
 var etcdV2Endpoints = []string{"http://127.0.0.1:4001"}
+var etcdV3Endpoints = []string{"127.0.0.1:2379"}
+var clusterAddress = []string{defaultClusterAddress}
+
+type Dis struct {
+	dis discover.Discover
+}
+
+func (c *Dis) discoverEventServer() {
+	discover, err := discover.GetDiscover(config.DiscoverConfig{
+		EtcdClusterEndpoints: etcdV3Endpoints,
+	})
+	if err != nil {
+		logrus.Error("create discover manager error.", err.Error())
+	}
+	discover.AddProject("event_log_event_http", c)
+	c.dis = discover
+}
+
+//UpdateEndpoints 更新eventserver地址
+func (c *Dis) UpdateEndpoints(endpoints ...*config.Endpoint) {
+	var servers []string
+	for _, e := range endpoints {
+		if e.URL != "" {
+			servers = append(servers, e.URL+"/docker-instance")
+			logrus.Infof("discove a container log server %s", e.URL)
+		}
+	}
+	clusterAddress = servers
+}
+
+func (c *Dis) Error(err error) {
+	logrus.Error("discover container log server error.", err.Error())
+}
 
 func init() {
 	if err := logger.RegisterLogDriver(name, New); err != nil {
@@ -38,6 +71,8 @@ func init() {
 	if err := logger.RegisterLogOptValidator(name, ValidateLogOpt); err != nil {
 		logrus.Fatal(err)
 	}
+	dis := Dis{}
+	dis.discoverEventServer()
 }
 
 //StreamLog 消息流log
@@ -300,38 +335,15 @@ func (s *StreamLog) Name() string {
 
 // GetLogAddress 动态获取日志服务端地址
 func GetLogAddress(serviceID string) string {
-	var clusterAddress []string
-	res, err := http.DefaultClient.Get(fmt.Sprintf("%s/v2/keys/event/instance", etcdV2Endpoints[0]))
-	if err != nil {
-		logrus.Errorf("Error get docker log instance from etcd: %v", err)
-		return defaultAddress
-	}
-	if res != nil && res.Body != nil {
-		defer res.Body.Close()
-	}
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		logrus.Error("read get instance body data error. ", err.Error())
-		return defaultAddress
-	}
-	nodes := gjson.GetBytes(body, "node.nodes").Array()
-	if nodes != nil {
-		for _, node := range nodes {
-			if value, ok := node.Map()["value"]; ok {
-				hostIP := gjson.Get(value.String(), "HostIP").String()
-				webPort := gjson.Get(value.String(), "WebPort").Int()
-				if hostIP != "" && webPort != 0 {
-					clusterAddress = append(clusterAddress, fmt.Sprintf("http://%s:%d/docker-instance?service_id=%s&mode=stream", hostIP, webPort, serviceID))
-				}
-			}
+	var cluster []string
+	if len(clusterAddress) < 1 {
+		cluster = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID+"&mode=stream")
+	} else {
+		for _, a := range clusterAddress {
+			cluster = append(clusterAddress, a+"?service_id="+serviceID+"&mode=stream")
 		}
 	}
-
-	if len(clusterAddress) < 1 {
-		clusterAddress = append(clusterAddress, defaultClusterAddress+"?service_id="+serviceID+"&mode=stream")
-	}
-
-	return getLogAddress(clusterAddress)
+	return getLogAddress(cluster)
 }
 
 func getLogAddress(clusterAddress []string) string {
