@@ -1,8 +1,7 @@
 package streamlog
 
 import (
-	"acp_core/pkg/discover"
-	"acp_core/pkg/discover/config"
+	httputil "acp_core/pkg/util/http"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -33,34 +32,36 @@ var etcdV3Endpoints = []string{"127.0.0.1:2379"}
 var clusterAddress = []string{defaultClusterAddress}
 
 type Dis struct {
-	dis discover.Discover
+	discoverAddress string
 }
 
 func (c *Dis) discoverEventServer() {
-	discover, err := discover.GetDiscover(config.DiscoverConfig{
-		EtcdClusterEndpoints: etcdV3Endpoints,
-	})
-	if err != nil {
-		logrus.Error("create discover manager error.", err.Error())
-	}
-	discover.AddProject("event_log_event_http", c)
-	c.dis = discover
-}
-
-//UpdateEndpoints 更新eventserver地址
-func (c *Dis) UpdateEndpoints(endpoints ...*config.Endpoint) {
-	var servers []string
-	for _, e := range endpoints {
-		if e.URL != "" {
-			servers = append(servers, e.URL+"/docker-instance")
-			logrus.Infof("discove a container log server %s", e.URL)
+	for {
+		res, err := http.DefaultClient.Get(c.discoverAddress)
+		if err != nil {
+			logrus.Error("discover event_log_event_http app endpoints error, ", err.Error())
 		}
+		if res != nil && res.Body != nil {
+			re, err := httputil.ParseResponseBody(res.Body, "application/json")
+			if err != nil {
+				logrus.Error("discover event_log_event_http app endpoints parse body error, ", err.Error())
+			}
+			if re.List != nil {
+				var servers []string
+				for _, en := range re.List {
+					if end, ok := en.(map[string]interface{}); ok {
+						if url, ok := end["url"].(string); ok && url != "" {
+							servers = append(servers, url+"/docker-instance")
+						}
+					}
+				}
+				if len(servers) > 0 {
+					clusterAddress = servers
+				}
+			}
+		}
+		time.Sleep(time.Minute)
 	}
-	clusterAddress = servers
-}
-
-func (c *Dis) Error(err error) {
-	logrus.Error("discover container log server error.", err.Error())
 }
 
 func init() {
@@ -71,7 +72,7 @@ func init() {
 	if err := logger.RegisterLogOptValidator(name, ValidateLogOpt); err != nil {
 		logrus.Fatal(err)
 	}
-	dis := Dis{}
+	dis := Dis{discoverAddress: "http://127.0.0.1:6100/v2/apps/event_log_event_http/discover"}
 	dis.discoverEventServer()
 }
 
