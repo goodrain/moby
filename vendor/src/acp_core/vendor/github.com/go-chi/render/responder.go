@@ -2,12 +2,13 @@ package render
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"net/http"
 	"reflect"
+
+	"golang.org/x/net/context"
 )
 
 // M is a convenience alias for quickly building a map structure that is going

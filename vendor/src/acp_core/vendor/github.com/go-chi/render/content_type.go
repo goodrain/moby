@@ -1,9 +1,10 @@
 package render
 
 import (
-	"context"
 	"net/http"
 	"strings"
+
+	"golang.org/x/net/context"
 )
 
 var (
