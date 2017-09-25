@@ -101,7 +101,7 @@ func init() {
 		logrus.Fatal(err)
 	}
 	dis := Dis{discoverAddress: "http://127.0.0.1:6100/v2/apps/event_log_event_http/discover"}
-	dis.discoverEventServer()
+	go dis.discoverEventServer()
 }
 
 //StreamLog 消息流log
