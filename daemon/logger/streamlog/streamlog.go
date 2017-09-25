@@ -1,13 +1,14 @@
 package streamlog
 
 import (
-	httputil "acp_core/pkg/util/http"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -42,17 +43,15 @@ func (c *Dis) discoverEventServer() {
 			logrus.Error("discover event_log_event_http app endpoints error, ", err.Error())
 		}
 		if res != nil && res.Body != nil {
-			re, err := httputil.ParseResponseBody(res.Body, "application/json")
+			re, err := ParseResponseBody(res.Body)
 			if err != nil {
 				logrus.Error("discover event_log_event_http app endpoints parse body error, ", err.Error())
 			}
 			if re.List != nil {
 				var servers []string
 				for _, en := range re.List {
-					if end, ok := en.(map[string]interface{}); ok {
-						if url, ok := end["url"].(string); ok && url != "" {
-							servers = append(servers, url+"/docker-instance")
-						}
+					if en.URL != "" {
+						servers = append(servers, en.URL+"/docker-instance")
 					}
 				}
 				if len(servers) > 0 {
@@ -62,6 +61,35 @@ func (c *Dis) discoverEventServer() {
 		}
 		time.Sleep(time.Minute)
 	}
+}
+
+//ResponseBody api返回数据格式
+type ResponseBody struct {
+	ValidationError url.Values  `json:"validation_error,omitempty"`
+	Msg             string      `json:"msg,omitempty"`
+	Bean            interface{} `json:"bean,omitempty"`
+	List            []*Endpoint `json:"list,omitempty"`
+	//数据集总数
+	ListAllNumber int `json:"number,omitempty"`
+	//当前页码数
+	Page int `json:"page,omitempty"`
+}
+type Endpoint struct {
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+	Weight int    `json:"weight"`
+	Mode   int    `json:"-"` //0 表示URL变化，1表示Weight变化 ,2表示全变化
+}
+
+//ParseResponseBody 解析成ResponseBody
+func ParseResponseBody(red io.ReadCloser) (re ResponseBody, err error) {
+	if red == nil {
+		err = errors.New("readcloser can not be nil")
+		return
+	}
+	defer red.Close()
+	err = json.NewDecoder(red).Decode(&re)
+	return
 }
 
 func init() {
