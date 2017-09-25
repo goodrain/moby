@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"golang.org/x/net/context"
+	"context"
 )
 
 // M is a convenience alias for quickly building a map structure that is going
