@@ -1,5 +1,5 @@
 # Some bits borrowed from the openstack-selinux package
-Name: docker-engine-selinux
+Name: gr-docker-engine-selinux
 Version: %{_version}
 Release: %{_release}%{?dist}
 Summary: SELinux Policies for the open-source application container engine
@@ -7,7 +7,7 @@ BuildArch: noarch
 Group: Tools/Docker
 
 License: GPLv2
-Source: %{name}.tar.gz
+Source: docker-engine-selinux.tar.gz
 
 URL: https://dockerproject.org
 Vendor: Docker
@@ -36,6 +36,7 @@ BuildRequires: selinux-policy selinux-policy-devel
 
 # conflicting packages
 Conflicts: docker-selinux
+Conflicts: docker-engine-selinux
 
 # Usage: _format var format
 #   Expand 'modulenames' into various formats as needed
@@ -51,9 +52,9 @@ SELinux policy modules for use with Docker
 
 %prep
 %if 0%{?centos} <= 6
-%setup -n %{name}
+%setup -n docker-engine-selinux
 %else
-%autosetup -n %{name}
+%autosetup -n docker-engine-selinux
 %endif
 
 %build

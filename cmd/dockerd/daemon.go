@@ -38,6 +38,7 @@ import (
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/docker/docker/pkg/pidfile"
 	"github.com/docker/docker/pkg/signal"
+	"github.com/docker/docker/pkg/stdutil"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
@@ -57,6 +58,8 @@ type DaemonCli struct {
 
 	api *apiserver.Server
 	d   *daemon.Daemon
+	//the image name of Stdwatcher watch container
+	WatchImage string
 }
 
 func presentInHelp(usage string) string { return usage }
@@ -280,7 +283,13 @@ func (cli *DaemonCli) start() (err error) {
 		logrus.Fatalf("Error creating cluster component: %v", err)
 	}
 
-	logrus.Info("Daemon has completed initialization")
+	logrus.Info("Daemon has completed initialization/after edit")
+
+	//开启stdwatch 实时查看容器标准输出
+	closeWatcher := make(chan struct{})
+	w := stdutil.CreateWatcher(d, closeWatcher, cli.WatchImage)
+	go w.Watch()
+	//代码嵌入结束
 
 	logrus.WithFields(logrus.Fields{
 		"version":     dockerversion.Version,
@@ -309,6 +318,12 @@ func (cli *DaemonCli) start() (err error) {
 	c.Cleanup()
 	shutdownDaemon(d, 15)
 	containerdRemote.Cleanup()
+
+	//关闭watcher
+	close(closeWatcher)
+	//等候watcher关闭返回
+	w.WaitStop()
+
 	if errAPI != nil {
 		return fmt.Errorf("Shutting down due to ServeAPI error: %v", errAPI)
 	}

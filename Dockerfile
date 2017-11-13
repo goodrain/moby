@@ -25,15 +25,10 @@
 
 FROM debian:jessie
 
-# add zfs ppa
-RUN apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys E871F18B51E0147C77796AC81196BA81F6B0FC61 \
-	|| apt-key adv --keyserver hkp://pgp.mit.edu:80 --recv-keys E871F18B51E0147C77796AC81196BA81F6B0FC61
-RUN echo deb http://ppa.launchpad.net/zfs-native/stable/ubuntu trusty main > /etc/apt/sources.list.d/zfs.list
+# allow replacing httpredir or deb mirror
+ARG APT_MIRROR=deb.debian.org
+RUN sed -ri "s/(httpredir|deb).debian.org/$APT_MIRROR/g" /etc/apt/sources.list
 
-
-# allow replacing httpredir mirror
-ARG APT_MIRROR=httpredir.debian.org
-RUN sed -i s/httpredir.debian.org/$APT_MIRROR/g /etc/apt/sources.list
 
 # Packaged dependencies
 RUN apt-get update && apt-get install -y \
@@ -67,9 +62,7 @@ RUN apt-get update && apt-get install -y \
 	python-mock \
 	python-pip \
 	python-websocket \
-	ubuntu-zfs \
 	xfsprogs \
-	libzfs-dev \
 	tar \
 	zip \
 	--no-install-recommends \
@@ -267,6 +260,7 @@ RUN set -x \
 
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
+
 
 # Upload docker source
 COPY . /go/src/github.com/docker/docker
