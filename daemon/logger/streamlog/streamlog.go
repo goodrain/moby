@@ -51,7 +51,11 @@ func (c *Dis) discoverEventServer() {
 				var servers []string
 				for _, en := range re.List {
 					if en.URL != "" {
-						servers = append(servers, en.URL+"/docker-instance")
+						if strings.HasPrefix(en.URL, "http") {
+							servers = append(servers, en.URL+"/docker-instance")
+						} else {
+							servers = append(servers, "http://"+en.URL+"/docker-instance")
+						}
 					}
 				}
 				if len(servers) > 0 {
@@ -74,6 +78,7 @@ type ResponseBody struct {
 	//当前页码数
 	Page int `json:"page,omitempty"`
 }
+
 type Endpoint struct {
 	Name   string `json:"name"`
 	URL    string `json:"url"`
