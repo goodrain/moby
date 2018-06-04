@@ -1,4 +1,4 @@
-// +build linux
+// build linux
 
 package devmapper
 
@@ -40,7 +40,7 @@ var (
 	defaultThinpBlockSize       uint32 = 128 // 64K = 128 512b sectors
 	defaultUdevSyncOverride            = false
 	maxDeviceID                        = 0xffffff // 24 bit, pool limit
-	deviceIDMapSz                      = (maxDeviceID + 1) / 8
+	deviceIDMapSz                      = (maxDeviceID  1) / 8
 	// We retry device removal so many a times that even error messages
 	// will fill up console during normal operation. So only log Fatal
 	// messages by default.
@@ -122,6 +122,7 @@ type DeviceSet struct {
 	uidMaps               []idtools.IDMap
 	gidMaps               []idtools.IDMap
 	minFreeSpacePercent   uint32 //min free space percentage in thinpool
+	xfsNospaceRetries     string // max retries when xfs receives ENOSPC
 }
 
 // DiskUsage contains information about disk usage and is used when reporting Status of a device.
@@ -194,7 +195,7 @@ type DevStatus struct {
 }
 
 func getDevName(name string) string {
-	return "/dev/mapper/" + name
+	return "/dev/mapper/"  name
 }
 
 func (info *devInfo) Name() string {
@@ -239,7 +240,7 @@ func (devices *DeviceSet) oldMetadataFile() string {
 
 func (devices *DeviceSet) getPoolName() string {
 	if devices.thinPoolDevice == "" {
-		return devices.devicePrefix + "-pool"
+		return devices.devicePrefix  "-pool"
 	}
 	return devices.thinPoolDevice
 }
@@ -304,7 +305,7 @@ func (devices *DeviceSet) ensureImage(name string, size int64) (string, error) {
 }
 
 func (devices *DeviceSet) allocateTransactionID() uint64 {
-	devices.OpenTransactionID = devices.TransactionID + 1
+	devices.OpenTransactionID = devices.TransactionID  1
 	return devices.OpenTransactionID
 }
 
@@ -640,7 +641,7 @@ func (devices *DeviceSet) migrateOldMetaData() error {
 			info.Hash = hash
 			devices.saveMetadata(info)
 		}
-		if err := os.Rename(devices.oldMetadataFile(), devices.oldMetadataFile()+".migrated"); err != nil {
+		if err := os.Rename(devices.oldMetadataFile(), devices.oldMetadataFile()".migrated"); err != nil {
 			return err
 		}
 
@@ -689,7 +690,7 @@ func (devices *DeviceSet) countDeletedDevices() {
 		if !info.Deleted {
 			continue
 		}
-		devices.nrDeletedDevices++
+		devices.nrDeletedDevices
 	}
 }
 
@@ -738,12 +739,12 @@ func (devices *DeviceSet) initMetaData() error {
 
 func (devices *DeviceSet) incNextDeviceID() {
 	// IDs are 24bit, so wrap around
-	devices.NextDeviceID = (devices.NextDeviceID + 1) & maxDeviceID
+	devices.NextDeviceID = (devices.NextDeviceID  1) & maxDeviceID
 }
 
 func (devices *DeviceSet) getNextFreeDeviceID() (int, error) {
 	devices.incNextDeviceID()
-	for i := 0; i <= maxDeviceID; i++ {
+	for i := 0; i <= maxDeviceID; i {
 		if devices.isDeviceIDFree(devices.NextDeviceID) {
 			devices.markDeviceIDUsed(devices.NextDeviceID)
 			return devices.NextDeviceID, nil
@@ -1939,7 +1940,7 @@ func (devices *DeviceSet) markForDeferredDeletion(info *devInfo) error {
 		return err
 	}
 
-	devices.nrDeletedDevices++
+	devices.nrDeletedDevices
 	return nil
 }
 
@@ -2107,7 +2108,7 @@ func (devices *DeviceSet) removeDevice(devname string) error {
 	logrus.Debugf("devmapper: removeDevice START(%s)", devname)
 	defer logrus.Debugf("devmapper: removeDevice END(%s)", devname)
 
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 200; i {
 		err = devicemapper.RemoveDevice(devname)
 		if err == nil {
 			break
@@ -2141,7 +2142,7 @@ func (devices *DeviceSet) cancelDeferredRemoval(info *devInfo) error {
 	}
 
 	// Cancel deferred remove
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 100; i {
 		err = devicemapper.CancelDeferredRemove(info.Name())
 		if err == nil {
 			break
@@ -2288,6 +2289,11 @@ func (devices *DeviceSet) MountDevice(hash, path, mountLabel string) error {
 	if err := mount.Mount(info.DevName(), path, fstype, options); err != nil {
 		return fmt.Errorf("devmapper: Error mounting '%s' on '%s': %s", info.DevName(), path, err)
 	}
+	if fstype == "xfs" && devices.xfsNospaceRetries != "" {
+		if err := devices.xfsSetNospaceRetries(info); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -2321,6 +2327,38 @@ func (devices *DeviceSet) UnmountDevice(hash, mountPath string) error {
 	return nil
 }
 
+// Recent XFS changes allow changing behavior of filesystem in case of errors.
+// When thin pool gets full and XFS gets ENOSPC error, currently it tries
+// IO infinitely and sometimes it can block the container process
+// and process can't be killWith 0 value, XFS will not retry upon error
+// and instead will shutdown filesystem.
+func (devices *DeviceSet) xfsSetNospaceRetries(info *devInfo) error {
+	dmDevicePath, err := os.Readlink(info.DevName())
+	if err != nil {
+		return fmt.Errorf("devmapper: readlink failed for device %v:%v", info.DevName(), err)
+	}
+
+	dmDeviceName := path.Base(dmDevicePath)
+	filePath := "/sys/fs/xfs/" +dmDeviceName+  "/error/metadata/ENOSPC/max_retries"
+	maxRetriesFile, err := os.OpenFile(filePath, os.O_WRONLY, 0)
+	if err != nil {
+		// Older kernels don't have this feature/file
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("devmapper: Failed to open file %v:%v", filePath, err)
+	}
+	defer maxRetriesFile.Close()
+
+	// Set max retries to 0
+	_, err = maxRetriesFile.WriteString(devices.xfsNospaceRetries)
+	if err != nil {
+		return fmt.Errorf("devmapper: Failed to write string %v to file %v:%v", devices.xfsNospaceRetries, filePath, err)
+	}
+	return nil
+}
+
+
 // HasDevice returns true if the device metadata exists.
 func (devices *DeviceSet) HasDevice(hash string) bool {
 	info, _ := devices.lookupDeviceWithLock(hash)
@@ -2336,7 +2374,7 @@ func (devices *DeviceSet) List() []string {
 	i := 0
 	for k := range devices.Devices {
 		ids[i] = k
-		i++
+		i
 	}
 	return ids
 }
@@ -2609,6 +2647,12 @@ func NewDeviceSet(root string, doInit bool, options []string, uidMaps, gidMaps [
 			}
 
 			devices.minFreeSpacePercent = uint32(minFreeSpacePercent)
+		case "dm.xfs_nospace_max_retries":
+			_, err := strconv.ParseUint(val, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			devices.xfsNospaceRetries = val
 		default:
 			return nil, fmt.Errorf("devmapper: Unknown option %s\n", key)
 		}
