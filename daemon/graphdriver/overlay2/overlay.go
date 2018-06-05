@@ -107,6 +107,7 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 	// require kernel 4.0.0 to ensure multiple lower dirs are supported
 	v, err := kernel.GetKernelVersion()
 	if err != nil {
+		logrus.Warnf("get kernel version error %s", err.Error())
 		return nil, err
 	}
 	if kernel.CompareKernelVersion(*v, kernel.VersionInfo{Kernel: 4, Major: 0, Minor: 0}) < 0 {
