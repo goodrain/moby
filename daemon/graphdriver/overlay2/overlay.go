@@ -100,6 +100,7 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 	}
 
 	if err := supportsOverlay(); err != nil {
+		logrus.Warnf("supportsOverlay check error %s", err.Error())
 		return nil, graphdriver.ErrNotSupported
 	}
 
