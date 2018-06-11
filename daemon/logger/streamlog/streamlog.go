@@ -130,13 +130,13 @@ type StreamLog struct {
 }
 
 //New new logger
-func New(ctx logger.Context) (logger.Logger, error) {
+func New(info logger.Info) (logger.Logger, error) {
 	var (
 		env       = make(map[string]string)
 		tenantID  string
 		serviceID string
 	)
-	for _, pair := range ctx.ContainerEnv {
+	for _, pair := range info.ContainerEnv {
 		p := strings.SplitN(pair, "=", 2)
 		//logrus.Errorf("ContainerEnv pair: %s", pair)
 		if len(p) == 2 {
@@ -153,13 +153,13 @@ func New(ctx logger.Context) (logger.Logger, error) {
 	if serviceID == "" {
 		serviceID = "default"
 	}
-	address := getTCPConnConfig(serviceID, ctx.Config["stream-server"])
+	address := getTCPConnConfig(serviceID, info.Config["stream-server"])
 	writer, err := NewClient(address)
 	if err != nil {
 		return nil, err
 	}
 
-	cacheSize, err := strconv.Atoi(ctx.Config["cache-log-size"])
+	cacheSize, err := strconv.Atoi(info.Config["cache-log-size"])
 	if err != nil {
 		cacheSize = 1024
 	}
@@ -168,11 +168,11 @@ func New(ctx logger.Context) (logger.Logger, error) {
 		writer:                         writer,
 		serviceID:                      serviceID,
 		tenantID:                       tenantID,
-		containerID:                    ctx.ContainerID,
+		containerID:                    info.ContainerID,
 		ctx:                            currentCtx,
 		cancel:                         cancel,
 		cacheSize:                      cacheSize,
-		config:                         ctx.Config,
+		config:                         info.Config,
 		serverAddress:                  address,
 		reConnecting:                   make(chan bool, 1),
 		cacheQueue:                     make(chan string, 2000),
